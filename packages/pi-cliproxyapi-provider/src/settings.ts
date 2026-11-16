@@ -12,6 +12,8 @@ export interface ProviderSettings {
   perTurnEffort: boolean;
   /** Publish pi's native Claude mid-conversation system messages and tool changes; needs CLIProxyAPI v8.0.4 or later. */
   midConversationUpdates: boolean;
+  /** Publish Anthropic message threads for Claude models; opt-in, needs CLIProxyAPI v8.0.63 or later. */
+  messageThreads: boolean;
   showStrictMode: boolean;
 }
 
@@ -19,6 +21,7 @@ export const DEFAULT_PROVIDER_SETTINGS: ProviderSettings = {
   gpt56ContextWindow: "canonical",
   perTurnEffort: true,
   midConversationUpdates: true,
+  messageThreads: false,
   showStrictMode: false,
 };
 
@@ -43,6 +46,9 @@ function parseSettingsLayer(settings: unknown, scope: string): Partial<ProviderS
   if (record.midConversationUpdates !== undefined && typeof record.midConversationUpdates !== "boolean") {
     throw new Error(`${PROVIDER_SETTINGS_NAMESPACE}.midConversationUpdates must be a boolean in ${scope} settings.json`);
   }
+  if (record.messageThreads !== undefined && typeof record.messageThreads !== "boolean") {
+    throw new Error(`${PROVIDER_SETTINGS_NAMESPACE}.messageThreads must be a boolean in ${scope} settings.json`);
+  }
   if (record.showStrictMode !== undefined && typeof record.showStrictMode !== "boolean") {
     throw new Error(`${PROVIDER_SETTINGS_NAMESPACE}.showStrictMode must be a boolean in ${scope} settings.json`);
   }
@@ -50,6 +56,7 @@ function parseSettingsLayer(settings: unknown, scope: string): Partial<ProviderS
     ...(gpt56ContextWindow !== undefined ? { gpt56ContextWindow } : {}),
     ...(record.perTurnEffort !== undefined ? { perTurnEffort: record.perTurnEffort } : {}),
     ...(record.midConversationUpdates !== undefined ? { midConversationUpdates: record.midConversationUpdates } : {}),
+    ...(record.messageThreads !== undefined ? { messageThreads: record.messageThreads } : {}),
     ...(record.showStrictMode !== undefined ? { showStrictMode: record.showStrictMode } : {}),
   };
 }

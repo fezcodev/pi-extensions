@@ -38,6 +38,7 @@ export interface CatalogSnapshot {
   gpt56ContextWindow: Gpt56ContextWindowMode;
   perTurnEffort: boolean;
   midConversationUpdates: boolean;
+  messageThreads: boolean;
   built: BuildProviderModelsResult;
 }
 
@@ -63,6 +64,8 @@ export interface ProviderCatalogOptions {
   perTurnEffort?: boolean;
   /** Publish pi's native Claude mid-conversation system messages and tool changes. Defaults to true. */
   midConversationUpdates?: boolean;
+  /** Publish Anthropic message threads for Claude models. Defaults to false (opt-in). */
+  messageThreads?: boolean;
   getApiKey: () => Promise<string | undefined>;
   backgroundTimeoutMs?: number;
   manualTimeoutMs?: number;
@@ -311,6 +314,7 @@ export class ProviderCatalog {
     const features: ClaudeWireFeatures = {
       perTurnEffort: this.options.perTurnEffort ?? true,
       midConversationUpdates: this.options.midConversationUpdates ?? true,
+      messageThreads: this.options.messageThreads ?? false,
     };
     this.snapshot = {
       cpaModels,
@@ -321,6 +325,7 @@ export class ProviderCatalog {
       gpt56ContextWindow: this.options.gpt56ContextWindow,
       perTurnEffort: features.perTurnEffort,
       midConversationUpdates: features.midConversationUpdates,
+      messageThreads: features.messageThreads,
       built: buildProviderModels(
         cpaModels,
         metadata,

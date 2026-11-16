@@ -84,7 +84,7 @@ Use `"full"` only when the selected CLIProxyAPI route and upstream account actua
 
 ### Model and display configuration
 
-Run `/cliproxyapi config` in pi's TUI to edit every package-level `settings.json` value. The tabbed panel has `Connection`, `Models`, and `Display` sections; it controls the GPT-5.6 context-window mode, per-turn Claude effort, Claude mid-conversation updates, and whether the model selector shows the published strict tool-schema capability.
+Run `/cliproxyapi config` in pi's TUI to edit every package-level `settings.json` value. The tabbed panel has `Connection`, `Models`, and `Display` sections; it controls the GPT-5.6 context-window mode, per-turn Claude effort, Claude mid-conversation updates, Claude message threads, and whether the model selector shows the published strict tool-schema capability.
 
 ```json
 {
@@ -92,6 +92,7 @@ Run `/cliproxyapi config` in pi's TUI to edit every package-level `settings.json
     "gpt56ContextWindow": "canonical",
     "perTurnEffort": true,
     "midConversationUpdates": true,
+    "messageThreads": false,
     "showStrictMode": false
   }
 }
@@ -163,6 +164,16 @@ Claude models that pi's native catalog marks with `supportsMidConvoSystemMessage
 - An effort switch on the same turn kept the cache too.
 
 Models pi does not mark keep the collapsed form, where any system-prompt or tool change rewrites the cache.
+
+### Message threads (Claude)
+
+**Off by default.** Turn it on with `"messageThreads": true`, or under `/cliproxyapi config` → `Models`. It requires CLIProxyAPI v8.0.63 or later, which forwards the `message-threads-2026-08-12` beta and routes each continuation to the credential that created its thread; v8.0.68 or later also keeps a thread's beta profile stable across turns.
+
+Pi turns message threads on by default only for its own `anthropic` provider on `api.anthropic.com`. With the setting on, this package publishes `supportsMessageThreads` for every Claude model pi's native catalog knows, under the same `anthropic`-owner rule as per-turn effort; `devin/` routes are excluded because Devin keeps no Anthropic thread state. Pi then sends the first request of a session with `thread: {"type": "create"}` and each later one as `thread: {"type": "continue", "previous_message_id": …}` carrying only the new messages, without the system prompt or tools. It needs a session id, so a session with cache retention `none` sends full requests.
+
+CLIProxyAPI keeps the state that continuations need in memory. After a restart, or once a thread is evicted, it answers `404` with `error_code: "thread_not_found"`, and pi replays the whole conversation as a new thread. A proxy that rejects threads outright with a `400` turns them off for the rest of that session.
+
+A continuation can only run on the credential that created its thread. When that credential is disabled, removed, cooling down or out of quota, released CLIProxyAPI versions answer with an ordinary `503` or `429` instead of `thread_not_found`. The main session recovers through pi's automatic retry, after one visible error; a single-shot call such as the Auto Permissions reviewer fails that review. router-for-me/CLIProxyAPI#7611 makes CLIProxyAPI answer `thread_not_found` in that case, so pi replays without an error. That is why the setting is off by default.
 
 ## Metadata aliases
 

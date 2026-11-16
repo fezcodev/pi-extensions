@@ -167,6 +167,13 @@ function providerSettingsItems(
       currentValue: settings.midConversationUpdates ? "enabled" : "disabled",
       values: ["enabled", "disabled"],
     },
+    {
+      id: "messageThreads",
+      label: "Claude message threads",
+      description: "Continue Claude conversations by reference, sending only the new turn. Off by default; needs CLIProxyAPI v8.0.63+.",
+      currentValue: settings.messageThreads ? "enabled" : "disabled",
+      values: ["enabled", "disabled"],
+    },
   ];
   return [
     {
@@ -215,6 +222,9 @@ export async function openProviderConfig(
         }
         if (id === "midConversationUpdates" && (value === "enabled" || value === "disabled")) {
           edited.midConversationUpdates = value === "enabled";
+        }
+        if (id === "messageThreads" && (value === "enabled" || value === "disabled")) {
+          edited.messageThreads = value === "enabled";
         }
         if (id === "showStrictMode" && (value === "enabled" || value === "disabled")) {
           edited.showStrictMode = value === "enabled";

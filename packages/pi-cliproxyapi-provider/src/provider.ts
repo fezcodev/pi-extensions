@@ -40,11 +40,14 @@ export interface ClaudeWireFeatures {
   perTurnEffort: boolean;
   /** Mid-conversation system messages and tool changes; needs CLIProxyAPI v8.0.4 or later. */
   midConversationUpdates: boolean;
+  /** Anthropic message threads (`supportsMessageThreads`); opt-in, needs CLIProxyAPI v8.0.63 or later. */
+  messageThreads: boolean;
 }
 
 export const DEFAULT_CLAUDE_WIRE_FEATURES: ClaudeWireFeatures = {
   perTurnEffort: true,
   midConversationUpdates: true,
+  messageThreads: false,
 };
 
 export interface BuildProviderModelsStats {
@@ -223,6 +226,14 @@ function positiveLimit(value: number | undefined): number | undefined {
  *   tool-name aliasing also rewrites `tool_addition`/`tool_removal` blocks
  *   (router-for-me/CLIProxyAPI#6174). Older releases fail the first request
  *   after a tool change with "references unknown tool".
+ * - Message threads (`supportsMessageThreads`) are opt-in and need v8.0.63,
+ *   which forwards the message-threads beta and routes a continuation to the
+ *   credential that created the thread. Pi enables them by default only for
+ *   api.anthropic.com, so when the setting is on every Claude model pi knows
+ *   gets the flag here. When CPA loses its thread state (a restart) it answers
+ *   `thread_not_found`, and pi replays the full conversation as a new thread.
+ *   Until CPA answers the same way for a thread whose credential is unavailable
+ *   (router-for-me/CLIProxyAPI#7611), losing that credential fails one request.
  *
  * A model CPA reports under a non-Anthropic owner (Antigravity, an
  * OpenAI-compatible upstream) is translated away from the Messages shape,
@@ -232,7 +243,8 @@ function positiveLimit(value: number | undefined): number | undefined {
  * only and drops the per-turn directives, while pi pins that top-level effort
  * to a fixed placeholder. Devin chooses the model per request, so a top-level
  * effort already changes per turn. Its system and tool-change updates survive
- * as Devin input and stay on.
+ * as Devin input and stay on. Devin keeps no Anthropic thread state, so it gets
+ * no message threads either.
  */
 function isDevinRoute(id: string): boolean {
   return id.toLowerCase().startsWith("devin/");
@@ -256,6 +268,7 @@ function compatFromWire(
         ...(profile.supportsMidConvoToolChanges ? { supportsMidConvoToolChanges: true } : {}),
       }
       : {}),
+    ...(features.messageThreads && !isDevinRoute(cpaModel.id) ? { supportsMessageThreads: true } : {}),
   };
   // Typed loosely: older pi-ai releases do not declare these flags and ignore them.
   return Object.keys(compat).length > 0 ? compat as ProviderModelConfigLike["compat"] : undefined;
