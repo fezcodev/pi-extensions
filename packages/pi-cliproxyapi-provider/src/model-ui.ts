@@ -170,7 +170,7 @@ function providerSettingsItems(
     {
       id: "messageThreads",
       label: "Claude message threads",
-      description: "Continue Claude conversations by reference, sending only the new turn. Needs CLIProxyAPI v8.0.63+; disable for older proxies.",
+      description: "Continue Claude conversations by reference, sending only the new turn. Off by default; needs CLIProxyAPI v8.0.63+.",
       currentValue: settings.messageThreads ? "enabled" : "disabled",
       values: ["enabled", "disabled"],
     },

@@ -64,7 +64,7 @@ export interface ProviderCatalogOptions {
   perTurnEffort?: boolean;
   /** Publish pi's native Claude mid-conversation system messages and tool changes. Defaults to true. */
   midConversationUpdates?: boolean;
-  /** Publish Anthropic message threads for Claude models. Defaults to true. */
+  /** Publish Anthropic message threads for Claude models. Defaults to false (opt-in). */
   messageThreads?: boolean;
   getApiKey: () => Promise<string | undefined>;
   backgroundTimeoutMs?: number;
@@ -314,7 +314,7 @@ export class ProviderCatalog {
     const features: ClaudeWireFeatures = {
       perTurnEffort: this.options.perTurnEffort ?? true,
       midConversationUpdates: this.options.midConversationUpdates ?? true,
-      messageThreads: this.options.messageThreads ?? true,
+      messageThreads: this.options.messageThreads ?? false,
     };
     this.snapshot = {
       cpaModels,

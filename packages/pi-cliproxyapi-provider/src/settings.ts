@@ -12,7 +12,7 @@ export interface ProviderSettings {
   perTurnEffort: boolean;
   /** Publish pi's native Claude mid-conversation system messages and tool changes; needs CLIProxyAPI v8.0.4 or later. */
   midConversationUpdates: boolean;
-  /** Publish Anthropic message threads for Claude models; needs CLIProxyAPI v8.0.63 or later. */
+  /** Publish Anthropic message threads for Claude models; opt-in, needs CLIProxyAPI v8.0.63 or later. */
   messageThreads: boolean;
   showStrictMode: boolean;
 }
@@ -21,7 +21,7 @@ export const DEFAULT_PROVIDER_SETTINGS: ProviderSettings = {
   gpt56ContextWindow: "canonical",
   perTurnEffort: true,
   midConversationUpdates: true,
-  messageThreads: true,
+  messageThreads: false,
   showStrictMode: false,
 };
 
