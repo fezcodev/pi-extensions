@@ -1,5 +1,11 @@
 # @hank-warren/pi-cliproxyapi-provider
 
+## 0.6.0
+
+### Minor Changes
+
+- Claude models served through CLIProxyAPI now use Anthropic message threads (pi 1.5.1+): after the first request, each turn sends only the new messages and continues the server-side thread. Controlled by the new `messageThreads` setting, on by default; it needs CLIProxyAPI v8.0.63 or later, so set `"messageThreads": false` (or disable it under `/cliproxyapi config` → `Models`) for older proxies. `devin/` routes are excluded.
+
 ## 0.5.1
 
 ### Patch Changes
