@@ -1,5 +1,13 @@
 # @hank-warren/pi-auto-name
 
+## 0.4.0
+
+### Minor Changes
+
+- Report the session name to herdr-core (`hc`), so rodeo and the Herdr app can show `$session_name`.
+
+  Inside an `hc` terminal (`HC_TERMINAL_SOCKET` and `HC_TERMINAL_ID` set), the session name is now set as the terminal label `session_name`, and removed for an unnamed session or when pi quits. rodeo's `$session_name` agent-row token reads that label, so an existing Herdr config works unchanged; put it in the config of the machine running rodeo, which also covers agents on connected `hc` machines. Label writes go out in call order, so a slow write never restores an older name. Herdr TUI panes are reported as before, and a process with both gets both.
+
 ## 0.3.0
 
 ### Minor Changes
