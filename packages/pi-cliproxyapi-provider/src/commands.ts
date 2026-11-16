@@ -124,6 +124,7 @@ function statusText(config: ReturnType<typeof loadConfig>, snapshot: CatalogSnap
     `GPT-5.6 context window: ${snapshot.gpt56ContextWindow === "full" ? "full (CPA max_context_window, else models.dev)" : "canonical (CPA context_window, else 272000)"}`,
     `Per-turn Claude effort: ${snapshot.perTurnEffort ? "enabled (needs CLIProxyAPI v8.0.3+)" : "disabled"}`,
     `Claude mid-conversation updates: ${snapshot.midConversationUpdates ? "enabled (needs CLIProxyAPI v8.0.4+)" : "disabled"}`,
+    `Claude message threads: ${snapshot.messageThreads ? "enabled (needs CLIProxyAPI v8.0.63+)" : "disabled"}`,
   ].join("\n");
 }
 

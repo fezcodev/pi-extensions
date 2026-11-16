@@ -43,7 +43,7 @@ export function normalizeProviderModels(
       supportsStrictMode: false,
       // Claude models run on the Anthropic Messages API (see model-api.ts) and
       // use the same adaptive thinking path pi uses for anthropic/* models.
-      // Per-turn effort and mid-conversation updates arrive in model.compat only
+      // Per-turn effort, mid-conversation updates and message threads arrive in model.compat only
       // for models pi's native catalog marks as supporting them (see provider.ts);
       // the rest keep top-level effort and a collapsed system prompt.
       ...(isClaudeModel({ availableModelId: model.id })

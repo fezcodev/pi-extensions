@@ -439,22 +439,25 @@ test("catalog builds models with the injected pi profiles", async () => {
     const byId = Object.fromEntries(snapshot.built.models.map((model) => [model.id, model]));
 
     assert.equal(loads, 1, "profiles are static per process");
-    assert.deepEqual(byId["claude-opus-5-5"].compat, { supportsMidConvoEffort: true });
+    assert.deepEqual(byId["claude-opus-5-5"].compat, { supportsMidConvoEffort: true, supportsMessageThreads: true });
     assert.equal(byId["gpt-5.5"].api, "openai-responses");
     assert.equal(snapshot.perTurnEffort, true, "on by default");
     assert.equal(snapshot.midConversationUpdates, true, "on by default");
+    assert.equal(snapshot.messageThreads, true, "on by default");
 
     const disabled = await new ProviderCatalog({
       config: { ...config, modelsDevEnabled: false },
       gpt56ContextWindow: "canonical",
       perTurnEffort: false,
       midConversationUpdates: false,
+      messageThreads: false,
       getApiKey: async () => undefined,
       backgroundTimeoutMs: 50,
       loadPiProfiles: async () => ({ find: (upstream) => upstream === "anthropic" ? { reasoning: true, supportsMidConvoEffort: true } : undefined }),
     }).load();
     assert.equal(disabled.perTurnEffort, false);
     assert.equal(disabled.midConversationUpdates, false);
+    assert.equal(disabled.messageThreads, false);
     assert.equal(disabled.built.models.find((model) => model.id === "claude-opus-5-5")?.compat, undefined);
   });
 });

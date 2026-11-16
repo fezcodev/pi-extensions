@@ -599,27 +599,34 @@ const ALL_CLAUDE_UPDATES = {
   supportsMidConvoEffort: true,
   supportsMidConvoSystemMessages: true,
   supportsMidConvoToolChanges: true,
+  supportsMessageThreads: true,
 };
 
 test("publishes pi's native Claude transcript flags only for models pi marks with them", async () => {
   const models = await withProfiles(["claude-opus-5-5", "claude-opus-4-8", "claude-haiku-9", "claude-sonnet-5", "claude-opus-4-6"]);
 
-  // Only the three transcript flags are carried; other native compat stays pi's business.
+  // Only the transcript flags are carried; other native compat stays pi's business.
   assert.deepEqual(models["claude-opus-5-5"].compat, ALL_CLAUDE_UPDATES);
-  assert.deepEqual(models["claude-opus-4-8"].compat, { supportsMidConvoSystemMessages: true, supportsMidConvoToolChanges: true });
-  assert.equal(models["claude-haiku-9"].compat, undefined, "tool changes need mid-conversation system messages");
-  assert.equal(models["claude-sonnet-5"].compat, undefined);
+  assert.deepEqual(models["claude-opus-4-8"].compat, {
+    supportsMidConvoSystemMessages: true,
+    supportsMidConvoToolChanges: true,
+    supportsMessageThreads: true,
+  });
+  // Message threads need no native flag: pi enables them for every model on Anthropic's own API.
+  assert.deepEqual(models["claude-haiku-9"].compat, { supportsMessageThreads: true }, "tool changes need mid-conversation system messages");
+  assert.deepEqual(models["claude-sonnet-5"].compat, { supportsMessageThreads: true });
   assert.equal(models["claude-opus-4-6"].compat, undefined, "unknown to pi");
 });
 
-test("Devin's Claude routes get no per-turn effort", async () => {
+test("Devin's Claude routes get no per-turn effort or message threads", async () => {
   const result = buildProviderModels(
     [{ id: "devin/claude-opus-5-5", owned_by: "anthropic" }, { id: "claude-opus-5-5", owned_by: "anthropic" }],
     {}, {}, "canonical", {}, null, await piProfiles,
   );
   const models = Object.fromEntries(result.models.map((model) => [model.id, model]));
 
-  // CPA picks Devin's effort variant from the top-level effort, which per-turn effort pins to a placeholder.
+  // CPA picks Devin's effort variant from the top-level effort, which per-turn effort pins to a placeholder,
+  // and keeps no Anthropic thread state for a continuation to reference.
   assert.deepEqual(models["devin/claude-opus-5-5"].compat, {
     supportsMidConvoSystemMessages: true,
     supportsMidConvoToolChanges: true,
@@ -632,7 +639,7 @@ test("Devin's Claude routes get no per-turn effort", async () => {
 test("mid-conversation updates can be switched off for CLIProxyAPI releases before v8.0.4", async () => {
   const result = buildProviderModels(
     [{ id: "claude-opus-5-5" }, { id: "claude-opus-4-8" }], {}, {}, "canonical", {}, null, await piProfiles,
-    { perTurnEffort: true, midConversationUpdates: false },
+    { perTurnEffort: true, midConversationUpdates: false, messageThreads: false },
   );
 
   assert.deepEqual(result.models[0].compat, { supportsMidConvoEffort: true }, "per-turn effort is independent");
@@ -642,13 +649,35 @@ test("mid-conversation updates can be switched off for CLIProxyAPI releases befo
 test("mid-conversation updates stay on when per-turn effort is switched off", async () => {
   const result = buildProviderModels(
     [{ id: "claude-opus-5-5" }], {}, {}, "canonical", {}, null, await piProfiles,
-    { perTurnEffort: false, midConversationUpdates: true },
+    { perTurnEffort: false, midConversationUpdates: true, messageThreads: false },
   );
 
   assert.deepEqual(result.models[0].compat, {
     supportsMidConvoSystemMessages: true,
     supportsMidConvoToolChanges: true,
   });
+});
+
+test("message threads can be switched off for CLIProxyAPI releases before v8.0.63", async () => {
+  const result = buildProviderModels(
+    [{ id: "claude-opus-5-5" }, { id: "claude-sonnet-5" }], {}, {}, "canonical", {}, null, await piProfiles,
+    { perTurnEffort: true, midConversationUpdates: true, messageThreads: false },
+  );
+
+  assert.deepEqual(result.models[0].compat, {
+    supportsMidConvoEffort: true,
+    supportsMidConvoSystemMessages: true,
+    supportsMidConvoToolChanges: true,
+  }, "the other transcript flags are independent");
+  assert.equal(result.models[1].compat, undefined);
+});
+
+test("message threads are published only for Claude models pi knows", async () => {
+  const models = await withProfiles(["claude-sonnet-5", "claude-opus-4-6", "gpt-5.5"]);
+
+  assert.deepEqual(models["claude-sonnet-5"].compat, { supportsMessageThreads: true });
+  assert.equal(models["claude-opus-4-6"].compat, undefined, "unknown to pi");
+  assert.equal(models["gpt-5.5"].compat, undefined, "Codex Responses has no Anthropic threads");
 });
 
 test("pi's native thinking map wins over family rules and metadata", async () => {
@@ -715,7 +744,7 @@ test("an unreadable pi catalog degrades to family rules", async () => {
 test("per-turn effort can be switched off for CLIProxyAPI releases before v8.0.3", async () => {
   const result = buildProviderModels(
     [{ id: "claude-opus-5-5" }], {}, {}, "canonical", {}, null, await piProfiles,
-    { perTurnEffort: false, midConversationUpdates: false },
+    { perTurnEffort: false, midConversationUpdates: false, messageThreads: false },
   );
 
   assert.equal(result.models[0].compat, undefined);
