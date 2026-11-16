@@ -1,6 +1,6 @@
 # @hank-warren/pi-auto-name
 
-Names each [Pi](https://pi.dev) session after the work it is doing, so `/resume`, the terminal title, and anything that reads it (such as [Herdr](https://herdr.dev)'s agent list) show `statusline cache fix` instead of a blank or a directory name.
+Names each [Pi](https://pi.dev) session after the work it is doing, so `/resume`, the terminal title, and anything that reads it (such as the agent list in [Herdr](https://herdr.dev) or [rodeo](https://github.com/lukeed/rodeo)) show `statusline cache fix` instead of a blank or a directory name.
 
 ## Install
 
@@ -25,9 +25,14 @@ Do not install this standalone package on a host that also installs the aggregat
 - **Small input.** The model sees a digest of the current branch: the project directory, the first request, the last few requests, and the latest reply, each truncated to a few hundred characters.
 - **Interactive only.** The automatic name is skipped in print, JSON, and RPC modes, which covers subagent children.
 
-## Herdr
+## Herdr, herdr-core and rodeo
 
-Inside a [Herdr](https://herdr.dev) pane the name is also reported as the pane token `session_name`, so a sidebar row can show just the name, without the `π - … - <dir>` decoration pi puts in the terminal title. Add it to the Agent rows in the Herdr config of the machine you view the sidebar from (with `herdr --remote`, that is the local client):
+The name is also reported as `session_name`, so a sidebar row can show just the name, without the `π - … - <dir>` decoration pi puts in the terminal title:
+
+- In a [Herdr](https://herdr.dev) TUI pane (`HERDR_ENV=1`), as the pane token `session_name`.
+- In a [herdr-core](https://github.com/herdrdev/herdr-core) (`hc`) terminal, which is what [rodeo](https://github.com/lukeed/rodeo) and the Herdr app run on, as the terminal label `session_name`.
+
+Add it to the Agent rows in the config of the machine you view the sidebar from: the Herdr client's config with `herdr --remote`, or `~/.config/rodeo/config.toml` on the machine running rodeo, including for agents on connected `hc` machines:
 
 ```toml
 [ui.sidebar.agents]
@@ -37,7 +42,7 @@ rows = [
 ]
 ```
 
-The token follows every name change — the automatic name, `/rename`, `/name`, a resumed or forked session — and is cleared when pi quits. Reports are single short socket writes to the pane's own Herdr server, bounded by a 500 ms timeout; failures are ignored. Outside Herdr nothing is sent.
+The token follows every name change — the automatic name, `/rename`, `/name`, a resumed or forked session — and is cleared when pi quits. Reports are single short socket writes to the pane's own Herdr server or `hc` core, bounded by a 500 ms timeout; failures are ignored. Outside both nothing is sent.
 
 ## What it touches
 
