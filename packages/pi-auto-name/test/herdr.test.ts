@@ -9,29 +9,35 @@ import { reportSessionName } from "../herdr.ts";
 import autoName from "../index.ts";
 
 type Request = { method: string; params: { pane_id: string; source: string; seq: number; tokens: Record<string, string | null> } };
+type HcRequest = { jsonrpc: string; method: string; params: { terminal: string; labels: Record<string, string> } };
 
-/** A stand-in Herdr server on a real Unix socket, recording each request. */
-async function fakeHerdr(t: test.TestContext, respond = true) {
-	const dir = mkdtempSync(path.join(os.tmpdir(), "herdr-"));
-	const socketPath = path.join(dir, "herdr.sock");
-	const requests: Request[] = [];
+/** A stand-in server on a real Unix socket, recording each request. `delayMs` holds every reply. */
+async function fakeServer<T>(t: test.TestContext, env: (socketPath: string) => Record<string, string>, respond = true, delayMs = 0) {
+	const dir = mkdtempSync(path.join(os.tmpdir(), "fake-"));
+	const socketPath = path.join(dir, "server.sock");
+	const requests: T[] = [];
 	const server = net.createServer((socket) => {
 		socket.on("data", (chunk) => {
 			for (const line of chunk.toString().split("\n").filter(Boolean)) requests.push(JSON.parse(line));
-			if (respond) socket.write('{"id":"x","result":{}}\n');
+			if (respond) setTimeout(() => socket.write('{"id":"x","result":{}}\n'), delayMs);
 		});
 	});
 	await new Promise<void>((resolve) => server.listen(socketPath, resolve));
-	Object.assign(process.env, { HERDR_ENV: "1", HERDR_SOCKET_PATH: socketPath, HERDR_PANE_ID: "w1:p1" });
+	const vars = env(socketPath);
+	Object.assign(process.env, vars);
 	t.after(() => {
-		delete process.env.HERDR_ENV;
-		delete process.env.HERDR_SOCKET_PATH;
-		delete process.env.HERDR_PANE_ID;
+		for (const key of Object.keys(vars)) delete process.env[key];
 		server.close();
 		rmSync(dir, { recursive: true, force: true });
 	});
 	return requests;
 }
+
+const fakeHerdr = (t: test.TestContext, respond = true) =>
+	fakeServer<Request>(t, (socket) => ({ HERDR_ENV: "1", HERDR_SOCKET_PATH: socket, HERDR_PANE_ID: "w1:p1" }), respond);
+
+const fakeHc = (t: test.TestContext, respond = true, delayMs = 0) =>
+	fakeServer<HcRequest>(t, (socket) => ({ HC_TERMINAL_SOCKET: socket, HC_TERMINAL_ID: "t7" }), respond, delayMs);
 
 function setup(mode = "tui") {
 	const mock = createMockPi();
@@ -92,6 +98,49 @@ test("sends nothing outside Herdr or outside the TUI", async (t) => {
 	await reportSessionName("x");
 	await settle();
 	assert.equal(requests.length, 0);
+});
+
+test("under hc, sets the session_name label on pi's terminal, and removes it with an empty value", async (t) => {
+	const requests = await fakeHc(t);
+	await reportSessionName("statusline cache fix");
+	await reportSessionName(undefined);
+	assert.deepEqual(
+		requests.map(({ jsonrpc, method, params }) => ({ jsonrpc, method, params })),
+		[
+			{ jsonrpc: "2.0", method: "terminal.label", params: { terminal: "t7", labels: { session_name: "statusline cache fix" } } },
+			{ jsonrpc: "2.0", method: "terminal.label", params: { terminal: "t7", labels: { session_name: "" } } },
+		],
+	);
+});
+
+test("hc labels land in call order, so a slow write cannot restore an older name", async (t) => {
+	const requests = await fakeHc(t, true, 30);
+	const s = setup();
+	await s.fire("session_info_changed", { name: "first" });
+	await s.fire("session_info_changed", { name: "second" });
+	await s.fire("session_shutdown", { reason: "quit" });
+	assert.deepEqual(
+		requests.map((request) => request.params.labels.session_name),
+		["first", "second", ""],
+	);
+});
+
+test("reports to both when Herdr and hc are both present", async (t) => {
+	const herdr = await fakeHerdr(t);
+	const hc = await fakeHc(t);
+	await reportSessionName("both");
+	assert.deepEqual(herdr.map((request) => request.params.tokens), [{ session_name: "both" }]);
+	assert.deepEqual(hc.map((request) => request.params.labels), [{ session_name: "both" }]);
+});
+
+test("never throws or hangs when hc is missing or silent", async (t) => {
+	await fakeHc(t, false);
+	const started = Date.now();
+	await reportSessionName("silent hc");
+	assert.ok(Date.now() - started < 2000, "bounded by the timeout");
+
+	process.env.HC_TERMINAL_SOCKET = path.join(os.tmpdir(), "no-such-hc.sock");
+	await reportSessionName("missing hc");
 });
 
 test("never throws or hangs when Herdr is missing or silent", async (t) => {

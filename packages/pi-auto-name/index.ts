@@ -14,8 +14,8 @@
  * `pi-auto-name` custom entry recording which name is ours; neither reaches
  * the model.
  *
- * Inside Herdr the name is also reported as the pane token `$session_name`
- * (see herdr.ts), so a sidebar row can show it without pi's title decoration.
+ * Inside Herdr or hc the name is also reported as `$session_name` (see
+ * herdr.ts), so a sidebar row can show it without pi's title decoration.
  */
 import path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -148,7 +148,7 @@ export default function autoName(pi: ExtensionAPI): void {
 		}
 	}
 
-	// Herdr gets the name on every session change (so a stale one never carries
+	// Herdr and hc get the name on every session change (so a stale one never carries
 	// over), on every rename, and a clear on quit. TUI only, like the auto name.
 	pi.on("session_start", (_event, ctx) => {
 		cancel();
