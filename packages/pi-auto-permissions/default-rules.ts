@@ -27,6 +27,9 @@ import type { Gate } from "./gates.js";
  *   not. Rules match raw shell text, so quoting and variable indirection can
  *   evade them — the guardian and the system prompt are the semantic layer;
  *   these rules are the deterministic prefilter.
+ * - A delete verb is `rm` or `rmdir` not preceded by `-` or `.`, so a flag
+ *   such as `docker run --rm` or a name such as `x.rm` is not a delete;
+ *   `/bin/rm` still is.
  */
 
 /** Shell-write prefix: redirection or a write verb, then no command separator. */
@@ -56,7 +59,7 @@ const OVERSIGHT_RULES: readonly Gate[] = [
     label: "Input to another hc terminal",
   },
   {
-    pattern: /(?:>>?|\btee\b|\bsed\s+-i\b|\bcp\b|\bmv\b|\brm\b|\btruncate\b)[^|&;]*(?:\$\{?PI_CODING_AGENT_DIR\}?|\.pi\/agent)\/sessions\b/i,
+    pattern: /(?:>>?|\btee\b|\bsed\s+-i\b|\bcp\b|\bmv\b|(?<![-\w.])rm\b|\btruncate\b)[^|&;]*(?:\$\{?PI_CODING_AGENT_DIR\}?|\.pi\/agent)\/sessions\b/i,
     level: "deny",
     group: "oversight",
     label: "Session transcript write",
@@ -66,34 +69,34 @@ const OVERSIGHT_RULES: readonly Gate[] = [
 
 const DESTRUCTIVE_RULES: readonly Gate[] = [
   {
-    pattern: /\b(?:rm|rmdir)\b[^|&;]*\s['"]?\/[^/\s'"]*\/?['"]?(?=\s|$|[;|&])/i,
+    pattern: /(?<![-\w.])(?:rm|rmdir)\b[^|&;]*\s['"]?\/[^/\s'"]*\/?['"]?(?=\s|$|[;|&])/i,
     level: "deny",
     group: "destructive",
     label: "Delete of a critical path",
     message: "Deleting the filesystem root or a top-level directory is irreversible system destruction. Name the specific deeper path you actually mean.",
   },
   {
-    pattern: /\b(?:rm|rmdir)\b[^|&;]*\s['"]?(?:~|\$\{?HOME\}?)\/?['"]?(?=\s|$|[;|&])/i,
+    pattern: /(?<![-\w.])(?:rm|rmdir)\b[^|&;]*\s['"]?(?:~|\$\{?HOME\}?)\/?['"]?(?=\s|$|[;|&])/i,
     level: "deny",
     group: "destructive",
     label: "Delete of the home directory",
     message: "Deleting the home directory is irreversible. Name the specific path under it you actually mean.",
   },
   {
-    pattern: /\b(?:rm|rmdir)\b[^|&;]*\s['"]?\.\.?\/?['"]?(?=\s|$|[;|&])/i,
+    pattern: /(?<![-\w.])(?:rm|rmdir)\b[^|&;]*\s['"]?\.\.?\/?['"]?(?=\s|$|[;|&])/i,
     level: "guarded",
     group: "destructive",
     label: "Delete of the working directory or a parent",
   },
   {
-    pattern: /\brm\b[^|&;]*\s['"]?\$\{?[A-Za-z_]\w*\}?['"]?\/\*/i,
+    pattern: /(?<![-\w.])rm\b[^|&;]*\s['"]?\$\{?[A-Za-z_]\w*\}?['"]?\/\*/i,
     level: "deny",
     group: "destructive",
     label: "Glob delete under a shell variable",
     message: "A glob rooted at a shell variable becomes a root delete when the variable is empty or unset. Re-run the delete with the resolved literal path written into the command.",
   },
   {
-    pattern: /\brm\b[^|&;]*\s(?:['"]?\/tmp\/|['"]?\$\{?TMPDIR\}?[/'"]?)[^|&;]*\*/i,
+    pattern: /(?<![-\w.])rm\b[^|&;]*\s(?:['"]?\/tmp\/|['"]?\$\{?TMPDIR\}?[/'"]?)[^|&;]*\*/i,
     level: "guarded",
     group: "destructive",
     label: "Wildcard delete in shared temp",
@@ -105,7 +108,7 @@ const DESTRUCTIVE_RULES: readonly Gate[] = [
     label: "Filesystem sweep via find",
   },
   {
-    pattern: /\brm\b[^|&;]*\s['"]?\$\{?[A-Za-z_]\w*\}?\/?['"]?(?=\s|$|[;|&])/i,
+    pattern: /(?<![-\w.])rm\b[^|&;]*\s['"]?\$\{?[A-Za-z_]\w*\}?\/?['"]?(?=\s|$|[;|&])/i,
     level: "guarded",
     group: "destructive",
     label: "Delete of a shell-variable target",

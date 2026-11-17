@@ -1,5 +1,11 @@
 # @hank-warren/pi-auto-permissions
 
+## 0.29.1
+
+### Patch Changes
+
+- A `--rm` flag is no longer read as a delete by the default rules. `docker run --rm -w /w …` used to hit the hard-deny "Delete of a critical path"; every rm/rmdir rule now ignores an `rm` preceded by `-`, `.` or a letter, while `rm`, `sudo rm`, `/bin/rm`, `xargs rm` and `-exec rm` still match.
+
 ## 0.29.0
 
 ### Minor Changes

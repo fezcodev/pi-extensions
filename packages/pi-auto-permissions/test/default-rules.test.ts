@@ -83,6 +83,7 @@ const FIXTURES: RuleFixture[] = [
 			'tee "$PI_CODING_AGENT_DIR/sessions/s.jsonl" < patched.jsonl',
 		],
 		nearMisses: [
+			"docker run --rm -v ~/.pi/agent/sessions:/s:ro alpine ls /s",
 			"cat ~/.pi/agent/sessions/foo/session.jsonl",
 			"grep -r 'loop_start' ~/.pi/agent/sessions/",
 			"ls $PI_CODING_AGENT_DIR/sessions",
@@ -98,8 +99,14 @@ const FIXTURES: RuleFixture[] = [
 			"rm -rf /data",
 			"rm -rf /tmp",
 			"echo done && rm -rf /var",
+			"/bin/rm -rf /",
+			"docker run --rm img && rm -rf /opt",
 		],
 		nearMisses: [
+			"docker run --rm -w /w img",
+			'docker run --rm -u "$(id -u)" -e GOCACHE=/cache/build -v "$PWD":/src -w /src golang:1.25 go test ./...',
+			"podman run --rm -v data:/data img ls /data",
+			"docker rmi --force /x",
 			"rm -rf /tmp/build-cache",
 			"rm -f /usr/local/bin/old-tool",
 			"rm -rf /home/hank/scratch/x",
@@ -109,12 +116,12 @@ const FIXTURES: RuleFixture[] = [
 	{
 		label: "Delete of the home directory",
 		matches: ["rm -rf ~", "rm -rf $HOME", 'rm -rf "${HOME}"', "rmdir ~/"],
-		nearMisses: ["rm -rf ~/scratch", "rm -rf $HOME/tmp/x", "rm -rf $HOMEDIR"],
+		nearMisses: ["rm -rf ~/scratch", "rm -rf $HOME/tmp/x", "rm -rf $HOMEDIR", "docker run --rm -e HOME=/tmp -v $HOME:/h img"],
 	},
 	{
 		label: "Delete of the working directory or a parent",
 		matches: ["rm -rf .", "rm -rf ..", "rm -rf ./", "rm -rf ../", "rmdir .."],
-		nearMisses: ["rm -rf ./build", "rm -rf ../scratch-dir", "rm -rf .cache"],
+		nearMisses: ["rm -rf ./build", "rm -rf ../scratch-dir", "rm -rf .cache", "docker build --rm ."],
 	},
 	{
 		label: "Glob delete under a shell variable",
@@ -138,7 +145,7 @@ const FIXTURES: RuleFixture[] = [
 	{
 		label: "Delete of a shell-variable target",
 		matches: ['rm -rf "$BUILD_DIR"', "rm -rf $OUT", 'rm -r "${SCRATCH}"'],
-		nearMisses: ["rm -rf build", "rm -rf ./dist", "rm $FILE.bak"],
+		nearMisses: ["rm -rf build", "rm -rf ./dist", "rm $FILE.bak", 'docker run --rm -v "$CACHE":/c img'],
 	},
 	{
 		label: "Force push",
@@ -436,6 +443,7 @@ describe("default ruleset", () => {
 			"make -j4",
 			"docker build -t app:dev .",
 			"docker compose up -d",
+			'docker run --rm -v "$PWD":/w:ro -w /w python:3.13-alpine python -m unittest',
 			"git status",
 			"git fetch origin",
 			"git pull --ff-only",
