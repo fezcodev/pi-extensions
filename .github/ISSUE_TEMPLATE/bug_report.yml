@@ -6,7 +6,7 @@ body:
     attributes:
       value: |
         Thanks for the report. If this is a **security** issue, please close this
-        and use [private vulnerability reporting](https://github.com/hank-warren/pi-extensions/security/advisories/new) instead.
+        and use [private vulnerability reporting](https://github.com/fezcodev/pi-extensions/security/advisories/new) instead.
   - type: dropdown
     id: package
     attributes:

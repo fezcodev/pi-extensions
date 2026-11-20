@@ -16,13 +16,13 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/hank-warren/pi-extensions.git",
+    "url": "git+https://github.com/fezcodev/pi-extensions.git",
     "directory": "packages/pi-multi-login"
   },
   "bugs": {
-    "url": "https://github.com/hank-warren/pi-extensions/issues"
+    "url": "https://github.com/fezcodev/pi-extensions/issues"
   },
-  "homepage": "https://github.com/hank-warren/pi-extensions/tree/main/packages/pi-multi-login#readme",
+  "homepage": "https://github.com/fezcodev/pi-extensions/tree/main/packages/pi-multi-login#readme",
   "engines": {
     "node": ">=22.19.0"
   },

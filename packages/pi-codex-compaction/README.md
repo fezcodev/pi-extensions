@@ -30,7 +30,7 @@ pi -ne -e ./packages/pi-codex-compaction
 | Direct Codex | `provider: openai-codex`, `api: openai-codex-responses` | Codex Responses endpoint, ChatGPT OAuth token and account ID |
 | CLIProxyAPI | `provider: cpa`, `api: openai-responses`, GPT-5.6 or GPT-6 family | The model's base URL plus `/responses`, using the provider's resolved API key and custom headers |
 
-CPA works with [`@hank-warren/pi-cliproxyapi-provider`](https://github.com/hank-warren/pi-extensions/tree/main/packages/pi-cliproxyapi-provider). It keeps its normal `openai-responses` routing; do not switch its API or credentials to direct Codex. Namespaced model IDs such as `team/gpt-6-astra` are supported. Claude, other model families, and unrelated Responses providers are not opted in.
+CPA works with [`@hank-warren/pi-cliproxyapi-provider`](https://github.com/fezcodev/pi-extensions/tree/main/packages/pi-cliproxyapi-provider). It keeps its normal `openai-responses` routing; do not switch its API or credentials to direct Codex. Namespaced model IDs such as `team/gpt-6-astra` are supported. Claude, other model families, and unrelated Responses providers are not opted in.
 
 The proxy must forward `X-Codex-Beta-Features: remote_compaction_v2`, accept a trailing `{"type":"compaction_trigger"}` input item, return one streamed `compaction` item with `encrypted_content`, and accept that item on follow-up requests. Generic Responses compatibility alone does not establish this capability. Native compaction creation and encrypted-only replay were verified on CLIProxyAPI v7.2.157 with GPT-6 Astra.
 

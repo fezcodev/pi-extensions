@@ -137,7 +137,7 @@ Manual fallback (logged-in `hank-warren` npm account; 2FA is a passkey, so use a
 
 ### Branch protection
 
-`main` uses classic branch protection (not a ruleset; `gh api repos/hank-warren/pi-extensions/branches/main/protection` shows it): required status check `gate (pinned pi)` (strict), pull request required with **required approving reviews = 0** and **require review from code owners = on**, dismiss stale reviews, linear history, conversation resolution, no force-push or deletion, admins not enforced.
+`main` uses classic branch protection (not a ruleset; `gh api repos/fezcodev/pi-extensions/branches/main/protection` shows it): required status check `gate (pinned pi)` (strict), pull request required with **required approving reviews = 0** and **require review from code owners = on**, dismiss stale reviews, linear history, conversation resolution, no force-push or deletion, admins not enforced.
 
 The zero-and-code-owners pair is deliberate. `.github/CODEOWNERS` is `* @hank-warren`, and GitHub never counts an author as an approver of their own pull request, so with the count at 1 every one of Hank's pull requests was unmergeable without `gh pr merge --admin` — there is no second code owner to approve it. At 0, a pull request from Hank is mergeable on green CI with a plain `gh pr merge --squash`; a pull request from anyone else still needs Hank's approval because the code-owner rule covers every path. The one known gap (community discussion #14866): a non-owner pushing onto an open pull request that Hank authored does not re-trigger the code-owner requirement. Do not "fix" this by raising the count back to 1 — that reintroduces `--admin` on every merge and bypasses the required check along with the review.
 

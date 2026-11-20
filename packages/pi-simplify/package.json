@@ -13,7 +13,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/hank-warren/pi-extensions.git",
+    "url": "git+https://github.com/fezcodev/pi-extensions.git",
     "directory": "packages/pi-simplify"
   },
   "pi": {
