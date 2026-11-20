@@ -1,5 +1,16 @@
 # @hank-warren/pi-ask-user-question
 
+## 0.9.0
+
+### Minor Changes
+
+- A multi-select question confirmed with nothing checked answers "none of these" instead of leaving Enter inert. The model sees `"<question>"=(none: the user submitted with no options checked)`, `details` records `answer: ""` with `selected: []`, a note is kept, and remote answers can say it with `choices: []`. The tool description tells the model not to author a "None" option.
+
+### Patch Changes
+
+- Updated dependencies
+  - @hank-warren/pi-permission-selector@1.5.0
+
 ## 0.8.1
 
 ### Patch Changes

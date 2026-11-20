@@ -1,5 +1,11 @@
 # @hank-warren/pi-permission-selector
 
+## 1.5.0
+
+### Minor Changes
+
+- New opt-in `allowEmptySubmit`: in multi-select mode, Enter with nothing checked submits an empty selection instead of being inert, and the hint reads `enter confirm (none)`.
+
 ## 1.4.1
 
 ### Patch Changes
