@@ -8,7 +8,7 @@ This project moves forward rather than backporting. Fixes land in the latest pub
 
 **Please do not open a public issue for a security problem.**
 
-Use GitHub's private vulnerability reporting instead: go to the [Security tab](https://github.com/hank-warren/pi-extensions/security/advisories/new) and open a draft advisory. That keeps the report private between us until there is a fix.
+Use GitHub's private vulnerability reporting instead: go to the [Security tab](https://github.com/fezcodev/pi-extensions/security/advisories/new) and open a draft advisory. That keeps the report private between us until there is a fix.
 
 Please include what you found, which package and version it affects, and how to reproduce it. If it is exploitable, a proof of concept helps a lot.
 

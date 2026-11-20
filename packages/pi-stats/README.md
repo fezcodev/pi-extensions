@@ -14,7 +14,7 @@ Try it for a single run without installing:
 pi -e npm:@hank-warren/pi-stats
 ```
 
-Do not install this standalone package on a host that also installs the aggregate `hank-warren/pi-extensions` Git package; that would load the extension twice.
+Do not install this standalone package on a host that also installs the aggregate `fezcodev/pi-extensions` Git package; that would load the extension twice.
 
 ## Use
 
