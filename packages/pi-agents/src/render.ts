@@ -148,7 +148,7 @@ const blank = (line: string) => line.replace(ANSI, "").trim() === "";
  * blocks so a paragraph or table is never sliced; inside the first block only
  * when it alone is taller. Pure, for tests.
  */
-export function clampAtBlock(lines: string[], maxLines: number): { shown: string[]; hidden: number } {
+export function clampAtBlock(lines: readonly string[], maxLines: number): { shown: string[]; hidden: number } {
 	let end = lines.length;
 	while (end > 0 && blank(lines[end - 1]!)) end--;
 	if (end <= maxLines) return { shown: lines.slice(0, end), hidden: 0 };

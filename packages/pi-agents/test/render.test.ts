@@ -16,7 +16,7 @@ import { AgentViewer, type ViewerKeys } from "../src/viewer.js";
 initTheme("dark", false);
 // SGR, OSC 8 links (BEL or ST), and the APC cursor markers Pi 1.2 editors emit.
 const ZERO_WIDTH = /\x1b\[[0-9;]*m|\x1b\]8;;[^\x07\x1b]*(?:\x07|\x1b\\)|\x1b_[^\x07\x1b]*(?:\x07|\x1b\\)/g;
-const strip = (lines: string[]) => lines.map((line) => line.replace(ZERO_WIDTH, "").trimEnd());
+const strip = (lines: readonly string[]) => lines.map((line) => line.replace(ZERO_WIDTH, "").trimEnd());
 const plain: Theme = {
 	fg: (_color: string, text: string) => text,
 	bg: (_color: string, text: string) => text,

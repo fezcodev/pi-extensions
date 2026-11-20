@@ -92,7 +92,7 @@ class Notice implements Component {
 		private readonly content: string,
 	) {}
 
-	render(width: number): string[] {
+	render(width: number): readonly string[] {
 		this.text ??= new Text(this.theme.fg("muted", this.content), 1, 0);
 		return this.text.render(width);
 	}
