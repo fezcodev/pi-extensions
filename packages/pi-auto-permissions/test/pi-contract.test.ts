@@ -445,12 +445,12 @@ test(
 );
 
 test(
-	"with sequential tool execution, calls a script left behind reach their hook after the turn and are still released",
+	"with sequential tool execution, calls a script left behind are aborted by Pi without reaching their hook after the turn",
 	{ skip: createCodemodeExtension ? false : "this Pi has no codemode" },
 	async () => {
 		// Pi queues a script's calls before their hooks when tool execution is
-		// sequential, so once the script times out the queued ones reach the hook
-		// one by one, some after the turn has ended.
+		// sequential. Since Pi 1.6.0, queued calls that never started get Pi's own
+		// "Operation aborted" result, so none reaches the hook after the turn ends.
 		const guarded = 8;
 		const run = await runCodemodeScenario({
 			guarded,
@@ -461,8 +461,8 @@ test(
 		assert.equal(run.scriptEnded, true);
 		const turnEnd = run.order.indexOf("turn_end");
 		assert.ok(
-			turnEnd >= 0 && run.order.slice(turnEnd).some((entry) => entry.startsWith("tool_call ")),
-			`the scenario this pins: a left-behind call reaches its hook after turn_end (${run.order.join(", ")})`,
+			turnEnd >= 0 && !run.order.slice(turnEnd).some((entry) => entry.startsWith("tool_call ")),
+			`the scenario this pins: no left-behind call reaches its hook after turn_end (${run.order.join(", ")})`,
 		);
 		assert.equal(run.reviews, 1, "only the call under review when the script ended reached the guardian");
 		assert.deepEqual(run.orphanResults, Array.from({ length: guarded }, () => "Operation aborted"));

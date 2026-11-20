@@ -249,7 +249,7 @@ export function registerSettingsCommand(
           handleInput(data: string): void {
             list.handleInput(data);
           },
-          render(width: number): string[] {
+          render(width: number): readonly string[] {
             return list.render(width);
           },
         };

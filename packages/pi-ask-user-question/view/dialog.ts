@@ -446,7 +446,7 @@ export class QuestionnaireDialog {
 	 * `render()` would take down the entire dialog rather than one pane. A
 	 * preview is a nicety; it must never be able to do that.
 	 */
-	private renderMarkdown(preview: string, inner: number): string[] {
+	private renderMarkdown(preview: string, inner: number): readonly string[] {
 		if (this.opts.markdownTheme) {
 			try {
 				return new Markdown(preview, 0, 0, this.opts.markdownTheme).render(inner);

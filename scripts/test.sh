@@ -43,7 +43,9 @@ trap 'rm -f "$discovery_err"; rm -rf "$discovery_agent_dir"' EXIT
 # Throwaway agent dir, for the same reason smoke-load.mjs sets one: extensions
 # resolve their own config through getAgentDir(), and pi-multi-login performs a
 # one-time credential adoption *write* on first load. The gate must never touch
-# or read the host's real ~/.pi.
+# or read the host's real ~/.pi. It holds one offline stub model: since Pi 1.6.0
+# a run with no model warns on stderr, which this check reads.
+printf '%s\n' '{"providers":{"gate-stub":{"baseUrl":"http://127.0.0.1:9/v1","api":"openai-completions","apiKey":"gate-stub","models":[{"id":"gate-stub"}]}}}' >"$discovery_agent_dir/models.json"
 PI_CODING_AGENT_DIR="$discovery_agent_dir" pi -ne -e . --list-models >/dev/null 2>"$discovery_err"
 if [[ -s "$discovery_err" ]]; then
   printf 'Pi package discovery emitted warnings:\n' >&2

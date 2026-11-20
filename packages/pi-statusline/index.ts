@@ -560,7 +560,7 @@ export default function statuslineExtension(pi: ExtensionAPI): void {
 					handleInput(data: string): void {
 						list.handleInput(data);
 					},
-					render(width: number): string[] {
+					render(width: number): readonly string[] {
 						tracked.begin();
 						const lines = list.render(width);
 						celebrationPreview.setActive(tracked.selected() === CACHE_CELEBRATION_LABEL);
