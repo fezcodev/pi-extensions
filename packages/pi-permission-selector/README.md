@@ -54,7 +54,9 @@ Set `multiSelect: true` and supply `onSubmit` instead of `onSelect`:
 - Space and `1`–`9` both toggle the row; a digit also moves the highlight and
   no longer commits, so one keystroke can never end the question early.
 - Enter calls `onSubmit(checked, comment?)` with the checked options in list
-  order. With nothing checked it is inert — the `(0)` in the hint is the tell.
+  order. With nothing checked it is inert — the `(0)` in the hint is the tell —
+  unless `allowEmptySubmit: true`, which makes it submit an empty selection
+  ("none of these") and shows `enter confirm (none)`.
 - Everything else is unchanged: Esc cancels, the note editor still opens on the
   configured trigger and its text arrives as `onSubmit`'s `comment`, and rows
   wrap and indent under the label with the checkbox accounted for.

@@ -8,7 +8,8 @@
  * An answer is honoured only for a questionnaire that is open right now, and
  * only when it answers every question with what that question allows: one of
  * its option labels, typed text, or (multi-select) several labels plus
- * optional text. Anything else is dropped, never half-applied.
+ * optional text, where an explicit `choices: []` is "none of these". Anything
+ * else is dropped, never half-applied.
  */
 
 import { ASK_USER_ANSWER_EVENT, type AskUserRemoteAnswer, type AskUserRemoteQuestionAnswer } from "./events.ts";
@@ -79,7 +80,8 @@ export function resultFrom(params: AskUserParams, answer: AskUserRemoteAnswer): 
 			const picked = chosen(given, labels);
 			if (picked === undefined) return undefined;
 			const parts = text ? [...picked, text] : picked;
-			if (parts.length === 0) return undefined;
+			// None must be said, as `choices: []`; an answer that names nothing at all is malformed.
+			if (parts.length === 0 && !Array.isArray(given.choices)) return undefined;
 			session.recordMultiAnswer(parts, { custom: text.length > 0, notes });
 		} else {
 			const choice = typeof given.choice === "string" ? given.choice : undefined;

@@ -59,11 +59,20 @@ test("answers that do not fit are rejected whole", () => {
 		[{ choice: "Postgres", text: "also this" }, { choices: ["pi-stats"] }], // both
 		[{}, { choices: ["pi-stats"] }], // empty
 		[{ choice: "Postgres" }, { choices: ["pi-stats", "nope"] }], // one bad check
-		[{ choice: "Postgres" }, { choices: [] }], // nothing checked or typed
+		[{ choice: "Postgres" }, {}], // multi-select names nothing at all
 	];
 	for (const answers of bad) {
 		assert.equal(resultFrom(params, { id: "x", answers: answers as never }), undefined, JSON.stringify(answers));
 	}
+});
+
+test("an explicit empty choices list answers none of these", () => {
+	const result = resultFrom(params, { id: "x", answers: [{ choice: "Postgres" }, { choices: [], notes: "later" }] });
+	assert.ok(result);
+	assert.equal(result.cancelled, false);
+	assert.deepEqual(result.answers[1].selected, []);
+	assert.equal(result.answers[1].answer, "");
+	assert.equal(result.answers[1].notes, "later");
 });
 
 test("only an open questionnaire is answered, once", () => {

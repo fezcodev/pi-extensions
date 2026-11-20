@@ -24,7 +24,7 @@ register a tool named `ask_user_question`.
 | `1`–`9` | Select that option immediately (toggle it, on a multi-select question) |
 | `Space` | Toggle the highlighted option (multi-select only) |
 | `↑` / `↓` | Move the highlight |
-| `Enter` | Confirm the highlighted option, or submit the checked ones |
+| `Enter` | Confirm the highlighted option, or submit the checked ones (none checked: "none of these") |
 | `n` | Write a note: `Enter` answers with the highlighted option and the note (multi-select: keeps the note for the submit) |
 | `Tab` / `→` | Next question |
 | `Shift+Tab` / `←` | Previous question |
@@ -51,9 +51,13 @@ checks to run before merging":
 
 - Space and the digit hotkeys both toggle; a digit no longer commits, so one
   keystroke cannot end the question early.
-- Enter submits the checked options in list order and is inert until at least
-  one is checked — the count in the hint is the tell.
-- The answer comes back as the chosen labels joined with `, `.
+- Enter submits the checked options in list order. With nothing checked it
+  submits **none of these** — the hint reads `enter confirm (none)` — so
+  "revert nothing" or "none apply" never needs a typed answer, and the model
+  never needs to author a `None` option. A note still rides along.
+- The answer comes back as the chosen labels joined with `, `, or as
+  `"<question>"=(none: the user submitted with no options checked)`; in
+  `details` that answer is `answer: ""` with `selected: []`.
 - Multi-select questions may carry 2-6 options; single-select stays at 2-4.
 - Checking **`Type something.`** alongside other options opens the free-text
   field with those ticks preserved, and the typed value is **appended** to them
@@ -153,6 +157,7 @@ pi.events.emit("hank:ask-user:answer", {
   answers: [
     { choice: "Postgres", notes: "see @docs/db.md" },        // single-select
     { choices: ["pi-stats", "pi-stash"], text: "pi-agents" }, // multi-select, plus typed text
+    // { choices: [] } answers a multi-select question with "none of these"
   ],
 });
 pi.events.emit("hank:ask-user:answer", { id, cancelled: true }); // decline, like Esc

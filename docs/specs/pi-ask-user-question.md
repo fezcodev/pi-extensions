@@ -211,6 +211,11 @@ continue with the user's answers in mind."
 - Multi-select answers join with `, ` in `answer`, and also appear as a
   `selected: string[]` field on the answer. `answer` stays a plain string, so
   `tool/envelope.ts` and every consumer of `details.answers` are unchanged.
+- A multi-select question submitted with nothing checked is answered "none of
+  these": `answer: ""`, `selected: []`, rendered as
+  `"<question>"=(none: the user submitted with no options checked)`. It is an
+  answer, not a decline, and a note still rides along. Remote answers say it
+  with an explicit `choices: []`.
 - If the selected option carried a preview: append `selected preview: <text>`.
   **Amended (multi-select ship):** multi-select answers never carry a preview,
   even when checked options declare one — concatenating several previews into

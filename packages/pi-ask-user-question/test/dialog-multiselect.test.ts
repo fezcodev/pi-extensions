@@ -89,10 +89,44 @@ test("enter submits the checked options joined in list order", () => {
 	assert.equal(answer.custom, false);
 });
 
-test("enter with nothing checked is inert", () => {
+test("enter with nothing checked answers none of these", () => {
 	const h = harness();
 	h.dialog.handleInput("\r");
-	assert.equal(h.results.length, 0);
+	assert.equal(h.results.length, 1);
+	assert.equal(h.results[0].cancelled, false, "none is an answer, not a decline");
+	const [answer] = h.results[0].answers;
+	assert.equal(answer.answer, "");
+	assert.deepEqual(answer.selected, []);
+	assert.equal(answer.custom, false);
+});
+
+test("unticking everything and submitting also answers none", () => {
+	const h = harness();
+	h.dialog.handleInput("1");
+	h.dialog.handleInput("1");
+	h.dialog.handleInput("\r");
+	assert.deepEqual(h.results[0].answers[0].selected, []);
+});
+
+test("a note survives a none answer", () => {
+	const h = harness();
+	h.dialog.handleInput("n");
+	h.type("keep them all for now");
+	h.dialog.handleInput("\r"); // keeps the note
+	assert.equal(h.results.length, 0, "the note does not submit a multi-select question");
+	h.dialog.handleInput("\r");
+	const [answer] = h.results[0].answers;
+	assert.deepEqual(answer.selected, []);
+	assert.equal(answer.notes, "keep them all for now");
+});
+
+test("the sentinel alone with no typed text is still not submittable", () => {
+	const h = harness();
+	h.dialog.handleInput("4");
+	h.dialog.handleInput("\r");
+	assert.ok(h.dialog.isTypingCustom());
+	h.dialog.handleInput("\r");
+	assert.equal(h.results.length, 0, "an empty typed answer keeps the field open");
 });
 
 test("checking the sentinel opens free text with the other ticks preserved", () => {
@@ -214,7 +248,7 @@ test("a single-select question in the same call is untouched", () => {
 
 test("the hint line reports the live checked count", () => {
 	const h = harness();
-	assert.match(h.lines().join("\n"), /enter confirm \(0\)/);
+	assert.match(h.lines().join("\n"), /enter confirm \(none\)/);
 	h.dialog.handleInput("1");
 	h.dialog.handleInput("2");
 	assert.match(h.lines().join("\n"), /enter confirm \(2\)/);

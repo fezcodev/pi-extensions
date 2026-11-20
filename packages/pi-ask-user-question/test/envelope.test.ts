@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildResponse, DECLINE_MESSAGE, ENVELOPE_PREFIX, ENVELOPE_SUFFIX } from "../tool/envelope.ts";
+import { buildResponse, DECLINE_MESSAGE, ENVELOPE_PREFIX, ENVELOPE_SUFFIX, NONE_SELECTED } from "../tool/envelope.ts";
 import type { AskUserParams } from "../tool/schema.ts";
 
 const params: AskUserParams = {
@@ -169,4 +169,22 @@ test("a multi-select answer still takes a user note", () => {
 		params,
 	);
 	assert.match(result.content[0].text, /"Postgres, SQLite"\. user notes: start with Postgres\./);
+});
+
+test("a multi-select answered with nothing checked reads as none, not an empty string", () => {
+	const multi: AskUserParams = {
+		questions: [{ ...params.questions[0], question: "Which to revert?", multiSelect: true }],
+	};
+	const result = buildResponse(
+		{
+			answers: [{ questionIndex: 0, question: "Which to revert?", answer: "", custom: false, selected: [], notes: "all good" }],
+			cancelled: false,
+		},
+		multi,
+	);
+	assert.equal(
+		result.content[0].text,
+		`${ENVELOPE_PREFIX} "Which to revert?"=${NONE_SELECTED}. user notes: all good. ${ENVELOPE_SUFFIX}`,
+	);
+	assert.equal(result.details.cancelled, false);
 });

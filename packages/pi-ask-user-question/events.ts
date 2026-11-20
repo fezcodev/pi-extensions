@@ -72,7 +72,7 @@ export const ASK_USER_ANSWER_EVENT = "hank:ask-user:answer" as const;
 export interface AskUserRemoteQuestionAnswer {
 	/** Single-select: one of the option labels. Omit when answering with `text`. */
 	choice?: string;
-	/** Multi-select: option labels to check (any order). */
+	/** Multi-select: option labels to check (any order); `[]` with no `text` answers "none of these". */
 	choices?: ReadonlyArray<string>;
 	/** Typed answer (the "Type something." row); on multi-select, appended to the checks. */
 	text?: string;

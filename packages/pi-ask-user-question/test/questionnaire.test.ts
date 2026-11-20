@@ -211,11 +211,15 @@ test("a mixed selection plus a typed value is custom, with the typed value last"
 	assert.equal(answer.selected?.at(-1), "and also the docs site");
 });
 
-test("an empty multi-select selection records nothing", () => {
+test("an empty multi-select selection is an answer: none of these", () => {
 	const session = new QuestionnaireSession(multiSelectParams);
-	session.recordMultiAnswer([]);
-	assert.ok(!session.isComplete());
-	assert.deepEqual(session.result().answers, []);
+	session.recordMultiAnswer([], { notes: "revisit next week" });
+	assert.ok(session.isComplete());
+	const [answer] = session.result().answers;
+	assert.equal(answer.answer, "");
+	assert.deepEqual(answer.selected, []);
+	assert.equal(answer.custom, false);
+	assert.equal(answer.notes, "revisit next week");
 });
 
 test("recorded multi-select labels do not alias the caller's array", () => {

@@ -20,7 +20,8 @@
  *   1-9         select an option (toggle it, on a multiSelect question)
  *   space       toggle the highlighted option    (multiSelect only)
  *   ↑ / ↓       move the highlight
- *   enter       confirm the highlight, or submit the checked options
+ *   enter       confirm the highlight, or submit the checked options — with
+ *               nothing checked, that submits "none of these"
  *   n           open the note editor (single-select: enter answers with the
  *               highlighted option; multi-select: enter keeps the note for submit)
  *   tab / →     next question      shift+tab / ←   previous question
@@ -209,6 +210,8 @@ export class QuestionnaireDialog {
 			commentTrigger: never,
 			commentKeyHint: NOTE_KEY,
 			multiSelect,
+			// "None of these" is an answer, not a reason to type one.
+			allowEmptySubmit: multiSelect,
 			onSubmit: (checked) => this.submitChecked(index, checked),
 			onSelect: (option) => this.select(index, option, this.tabs[index].note),
 			onCancel: () => this.finish(session.cancelledResult()),

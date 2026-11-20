@@ -136,12 +136,15 @@ export class QuestionnaireSession {
 	 * the parts for anyone who wants them structured. `custom` means "a typed
 	 * value is among the parts", not "the whole answer is free text".
 	 *
+	 * An empty `labels` is a real answer — "none of these" — recorded as
+	 * `answer: ""` with `selected: []`; the envelope words it for the model.
+	 *
 	 * No preview is attached even when checked options declare one: concatenating
 	 * several previews into one answer string is noise the model authored itself.
 	 */
 	recordMultiAnswer(labels: string[], opts: { custom?: boolean; notes?: string } = {}): void {
 		const question = this.current;
-		if (!question || labels.length === 0) return;
+		if (!question) return;
 		this.answers[this.index] = {
 			questionIndex: this.index,
 			question: question.question,

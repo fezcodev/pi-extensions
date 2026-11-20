@@ -13,6 +13,8 @@ import type { AskUserParams, QuestionAnswer, QuestionnaireResult } from "./schem
 export const DECLINE_MESSAGE = "User declined to answer questions";
 export const ENVELOPE_PREFIX = "User has answered your questions:";
 export const ENVELOPE_SUFFIX = "You can now continue with the user's answers in mind.";
+/** Stands in for `"<answer>"` when a multi-select question was submitted with nothing checked. */
+export const NONE_SELECTED = "(none: the user submitted with no options checked)";
 
 interface ToolResult {
 	content: Array<{ type: "text"; text: string }>;
@@ -30,7 +32,8 @@ export function buildToolResult(text: string, details: QuestionnaireResult): Too
  */
 function buildAnswerSegment(a: QuestionAnswer): string {
 	const typed = !a.custom ? "" : a.selected ? " (includes text the user typed)" : " (typed by the user)";
-	const parts: string[] = [`"${a.question}"="${a.answer}"${typed}`];
+	const value = a.selected?.length === 0 ? NONE_SELECTED : `"${a.answer}"${typed}`;
+	const parts: string[] = [`"${a.question}"=${value}`];
 	if (a.notes && a.notes.length > 0) parts.push(`user notes: ${a.notes}`);
 	return `${parts.join(". ")}.`;
 }
