@@ -80,8 +80,9 @@ export function resultFrom(params: AskUserParams, answer: AskUserRemoteAnswer): 
 			const picked = chosen(given, labels);
 			if (picked === undefined) return undefined;
 			const parts = text ? [...picked, text] : picked;
-			// None must be said, as `choices: []`; an answer that names nothing at all is malformed.
-			if (parts.length === 0 && !Array.isArray(given.choices)) return undefined;
+			// None must be said, as `choices: []` and nothing else; an answer that names
+			// nothing, or pairs `[]` with a `choice`, is malformed.
+			if (parts.length === 0 && (!Array.isArray(given.choices) || given.choice !== undefined)) return undefined;
 			session.recordMultiAnswer(parts, { custom: text.length > 0, notes });
 		} else {
 			const choice = typeof given.choice === "string" ? given.choice : undefined;
