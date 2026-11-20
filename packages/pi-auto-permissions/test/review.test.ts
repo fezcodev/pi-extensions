@@ -285,6 +285,7 @@ describe("compact review evidence", () => {
 							{ questionIndex: 4, question: "Non-string?", kind: "option", answer: true },
 							{ questionIndex: 5, question: "Which files may change?", answer: "", custom: false, selected: [], notes: "Do not edit config.ts" },
 							{ questionIndex: 6, question: "Which hosts?", answer: "", custom: false, selected: [] },
+							{ questionIndex: 7, question: "Any limits?", answer: "Do not edit config.ts", custom: true, selected: [] },
 						],
 						cancelled: false,
 					},
@@ -300,6 +301,7 @@ describe("compact review evidence", () => {
 			{ source: "user", text: 'USER (dialog answer): selected "lint; tests (note: skip e2e)" — assistant-drafted question: "Enable which checks?"' },
 			{ source: "user", text: 'USER (dialog answer): selected none of the options (note: "Do not edit config.ts") — assistant-drafted question: "Which files may change?"' },
 			{ source: "user", text: 'USER (dialog answer): selected none of the options — assistant-drafted question: "Which hosts?"' },
+			{ source: "user", text: 'USER (dialog answer): selected "Do not edit config.ts" — assistant-drafted question: "Any limits?"' },
 		]);
 		assert.notEqual(records[2].key, records[3].key);
 		assert.ok(!JSON.stringify(records).includes("ENVELOPE_PROSE_CANARY"));
