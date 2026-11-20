@@ -71,7 +71,7 @@ const QuestionSchema = Type.Object({
 	multiSelect: Type.Optional(
 		Type.Boolean({
 			description:
-				"Render this question as checkboxes so the user can pick more than one option. Use it when several answers can hold at once (\"which of these should change\", \"which checks to run before merging\"); keep mutually exclusive choices single-select. Do not use it to ask which steps of your own plan to carry out: if you would recommend every option, state the plan and ask only about the genuinely optional parts. Multi-select questions may have 2-6 options instead of 2-4. The user toggles rows with Space or a digit and confirms with Enter, and the answer comes back as the chosen labels joined with \", \".",
+				"Render this question as checkboxes so the user can pick more than one option. Use it when several answers can hold at once (\"which of these should change\", \"which checks to run before merging\"); keep mutually exclusive choices single-select. Do not use it to ask which steps of your own plan to carry out: if you would recommend every option, state the plan and ask only about the genuinely optional parts. Multi-select questions may have 2-6 options instead of 2-4. The user toggles rows with Space or a digit and confirms with Enter, and the answer comes back as the chosen labels joined with \", \". Confirming with nothing checked answers \"none of these\"; do not author a \"None\" option.",
 		}),
 	),
 	options: Type.Array(OptionSchema, {

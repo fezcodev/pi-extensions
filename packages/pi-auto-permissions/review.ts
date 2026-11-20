@@ -494,11 +494,17 @@ function confirmedDialogAnswers(details: unknown, callArguments?: unknown): stri
       labels = [answer.answer.trim()];
       parts.push(labels[0]);
     }
-    if (parts.length === 0) continue;
-    if (typeof answer.notes === "string" && answer.notes.trim()) {
-      parts.push(`(note: ${answer.notes.trim()})`);
-    }
     const question = answer.question.trim();
+    const note = typeof answer.notes === "string" && answer.notes.trim() ? answer.notes.trim() : undefined;
+    // A multi-select confirmed with nothing checked: it authorizes no option, but its note is still the user's word.
+    // Any answer text wins: it falls through to the ordinary path above, as before.
+    if (Array.isArray(answer.selected) && answer.selected.length === 0 && parts.length === 0) {
+      const noted = note ? ` (note: ${JSON.stringify(note)})` : "";
+      texts.push(`USER (dialog answer): selected none of the options${noted} — assistant-drafted question: ${JSON.stringify(question)}`);
+      continue;
+    }
+    if (parts.length === 0) continue;
+    if (note) parts.push(`(note: ${note})`);
     // The user saw each option's description beside its label, so it is part of what they chose.
     // Typed text is not a choice even when it matches a label; on a multi-select answer it is the last part.
     const typed = answer.custom === true || answer.wasCustom === true || answer.kind === "custom";

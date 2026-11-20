@@ -1,5 +1,11 @@
 # @hank-warren/pi-auto-permissions
 
+## 0.29.2
+
+### Patch Changes
+
+- Reviewer evidence keeps a multi-select dialog answered with nothing checked: it is recorded as `selected none of the options`, with the user's note quoted, so a constraint written in that note reaches the reviewer while no option is authorized.
+
 ## 0.29.1
 
 ### Patch Changes

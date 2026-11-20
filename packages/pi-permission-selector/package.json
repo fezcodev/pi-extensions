@@ -1,6 +1,6 @@
 {
   "name": "@hank-warren/pi-permission-selector",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "description": "OptionSelector: a composable Pi TUI selector with numbered options, digit hotkeys, and inline notes, shared by pi-auto-permissions and pi-ask-user-question.",
   "type": "module",
   "keywords": [

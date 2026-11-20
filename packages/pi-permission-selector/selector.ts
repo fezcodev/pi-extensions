@@ -87,6 +87,12 @@ export interface OptionSelectorOptions {
 	 */
 	multiSelect?: boolean;
 	/**
+	 * Multi-select only. When true, Enter with nothing checked submits an empty
+	 * selection ("none of these") instead of being inert, and the hint reads
+	 * `enter confirm (none)`. Default false.
+	 */
+	allowEmptySubmit?: boolean;
+	/**
 	 * Invoked on Enter or a digit hotkey in single-select mode. `comment` is the
 	 * trimmed Tab-to-comment note, or undefined when none was typed.
 	 *
@@ -95,8 +101,9 @@ export interface OptionSelectorOptions {
 	onSelect?(option: SelectorOption, comment?: string): void;
 	/**
 	 * Invoked on Enter in multi-select mode with the checked options in list
-	 * order. Never called with an empty selection — Enter is inert until at
-	 * least one row is checked. Required when `multiSelect` is set.
+	 * order. Called with an empty selection only when `allowEmptySubmit` is set;
+	 * otherwise Enter is inert until at least one row is checked. Required when
+	 * `multiSelect` is set.
 	 */
 	onSubmit?(options: SelectorOption[], comment?: string): void;
 	/** Invoked on Esc from navigation mode. */
@@ -184,10 +191,10 @@ export class OptionSelector {
 		this.opts.onSelect?.(option, comment && comment.length > 0 ? comment : undefined);
 	}
 
-	/** Multi-select terminal path. Inert with nothing checked. */
+	/** Multi-select terminal path. Inert with nothing checked unless `allowEmptySubmit`. */
 	private submit(comment?: string): void {
 		const checked = this.getChecked();
-		if (checked.length === 0) return;
+		if (checked.length === 0 && !this.opts.allowEmptySubmit) return;
 		this.opts.onSubmit?.(checked, comment && comment.length > 0 ? comment : undefined);
 	}
 
@@ -259,7 +266,8 @@ export class OptionSelector {
 		const parts: string[] = [];
 		if (this.opts.multiSelect) {
 			parts.push(this.opts.digitHotkeys === false ? "space toggle" : "space/1-9 toggle");
-			parts.push("↑↓ move", `enter confirm (${this.checked.size})`);
+			const count = this.checked.size === 0 && this.opts.allowEmptySubmit ? "none" : String(this.checked.size);
+			parts.push("↑↓ move", `enter confirm (${count})`);
 		} else {
 			if (this.opts.digitHotkeys !== false) parts.push("1-9 select");
 			parts.push("↑↓ move", "enter confirm");

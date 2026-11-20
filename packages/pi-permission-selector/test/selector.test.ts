@@ -280,6 +280,30 @@ test("enter with nothing checked is inert", () => {
 	assert.deepEqual(h.selected, []);
 });
 
+test("allowEmptySubmit: enter with nothing checked submits an empty selection", () => {
+	const h = multi({ allowEmptySubmit: true });
+	assert.match(plain(h.selector.render(80)).join("\n"), /enter confirm \(none\)/);
+	h.selector.handleInput("\r");
+	assert.deepEqual(h.submitted, [{ values: [], comment: undefined }]);
+	h.selector.handleInput("1");
+	assert.match(plain(h.selector.render(80)).join("\n"), /enter confirm \(1\)/, "a tick restores the count");
+});
+
+test("allowEmptySubmit: a note submits with nothing checked", () => {
+	const h = multi({ allowEmptySubmit: true });
+	h.selector.handleInput("\t");
+	for (const ch of "later") h.selector.handleInput(ch);
+	h.selector.handleInput("\r");
+	assert.deepEqual(h.submitted, [{ values: [], comment: "later" }]);
+});
+
+test("allowEmptySubmit is inert on single-select", () => {
+	const h = harness({ allowEmptySubmit: true });
+	h.selector.handleInput("\r");
+	assert.deepEqual(h.selected, [{ value: "allow", comment: undefined }]);
+	assert.deepEqual(h.submitted, []);
+});
+
 test("checkbox glyphs render between the pointer and the ordinal", () => {
 	const h = multi();
 	h.selector.handleInput("2");
