@@ -72,6 +72,8 @@ export function resultFrom(params: AskUserParams, answer: AskUserRemoteAnswer): 
 		const question = params.questions[i];
 		const given = answers[i];
 		if (!isRecord(given)) return undefined;
+		// A typed answer that is not text is malformed, never silently dropped.
+		if (given.text !== undefined && typeof given.text !== "string") return undefined;
 		const labels = question.options.map((o) => o.label);
 		const text = typeof given.text === "string" ? given.text.trim() : "";
 		const notes = typeof given.notes === "string" && given.notes.trim() ? given.notes.trim() : undefined;

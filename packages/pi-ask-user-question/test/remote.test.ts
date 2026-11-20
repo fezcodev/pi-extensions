@@ -61,6 +61,8 @@ test("answers that do not fit are rejected whole", () => {
 		[{ choice: "Postgres" }, { choices: ["pi-stats", "nope"] }], // one bad check
 		[{ choice: "Postgres" }, {}], // multi-select names nothing at all
 		[{ choice: "Postgres" }, { choices: [], choice: "pi-stats" }], // none and a pick at once
+		[{ choice: "Postgres" }, { choices: [], text: 42 }], // none with a malformed typed answer
+		[{ choice: "Postgres", text: 42 }, { choices: ["pi-stats"] }], // a typed answer that is not text
 	];
 	for (const answers of bad) {
 		assert.equal(resultFrom(params, { id: "x", answers: answers as never }), undefined, JSON.stringify(answers));
