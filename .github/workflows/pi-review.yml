@@ -1,19 +1,42 @@
 name: Pi Code Review
 
-# One approve-or-request-changes review per push from hank-warren/pi-action's
-# reusable pr-review workflow, posted as github-actions[bot]. Older Pi reviews are
-# collapsed. Repo guidance: .github/pi/review.md.
+# One approve-or-request-changes review per push, posted as github-actions[bot]
+# (or your App's bot). Older Pi reviews are collapsed. Optional repo guidance:
+# .github/pi/review.md, read from the base branch.
+# Needs the CLIPROXYAPI_API_KEY secret and CLIPROXYAPI_BASE_URL variable.
 
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, edited]
 
-permissions:
-  contents: read
-  pull-requests: write
-
 jobs:
   pi-review:
-    uses: hank-warren/pi-action/.github/workflows/pr-review.yml@v1
-    secrets:
-      CLIPROXYAPI_API_KEY: ${{ secrets.CLIPROXYAPI_API_KEY }}
+    # Same-repo, human-authored PRs only: forks get no secrets, and bots are skipped.
+    # `edited` runs only when the PR was retargeted to another base branch.
+    if: >-
+      (github.event.action != 'edited' || github.event.changes.base != null) &&
+      github.event.pull_request.user.type != 'Bot' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: write
+    concurrency:
+      group: pi-review-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: fezcodev/pi-action/pr-review@v1
+        with:
+          cliproxyapi-api-key: ${{ secrets.CLIPROXYAPI_API_KEY }}
+          cliproxyapi-base-url: ${{ vars.CLIPROXYAPI_BASE_URL }}
+          # Defaults: cpa/gpt-6.2-sol, falling back to cpa/claude-opus-5-5, thinking high,
+          # read-only tools.
+          # mode: comment             # never approve or block, just comment
+          # app-client-id: ${{ vars.PI_APP_CLIENT_ID }}        # post as your App instead of
+          # app-private-key: ${{ secrets.PI_APP_PRIVATE_KEY }} # github-actions[bot]
