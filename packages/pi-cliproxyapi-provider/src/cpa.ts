@@ -15,6 +15,10 @@ export interface CpaModelSpec {
   /** Effort names CPA lists for the model, lowercase, in CPA's order. */
   reasoningLevels?: string[];
   inputModalities?: string[];
+  /** Whether CPA's Codex catalog advertises mid-conversation `configuration_update` effort changes. */
+  supportsReasoningEffortUpdates?: boolean;
+  /** Service tier ids CPA advertises for the model (e.g. `priority`, `ultrafast`). */
+  serviceTiers?: string[];
 }
 
 export interface CpaModel {
@@ -24,7 +28,13 @@ export interface CpaModel {
   created?: number;
   /** CPA's registry entry, when the instance publishes one (see {@link fetchCpaModelSpecs}). */
   spec?: CpaModelSpec;
+  /** Epoch ms when the model was last returned by CPA's `/v1/models`. */
+  lastSeenAt?: number;
+  /** Epoch ms when a previously seen model first disappeared from background discovery. */
+  staleSince?: number;
 }
+
+export const DEFAULT_STALE_MODEL_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 export interface CpaModelsResponse {
   object?: string;
@@ -58,9 +68,29 @@ function stringList(value: unknown): string[] | undefined {
   return strings.length === value.length ? strings : undefined;
 }
 
+function positiveTimestamp(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function parseServiceTierIds(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const tiers: string[] = [];
+  for (const entry of value) {
+    const raw = typeof entry === "string"
+      ? entry
+      : entry && typeof entry === "object" && typeof (entry as { id?: unknown }).id === "string"
+        ? (entry as { id: string }).id
+        : "";
+    const id = raw.trim().toLowerCase();
+    if (id && !tiers.includes(id)) tiers.push(id);
+  }
+  return tiers.length > 0 ? tiers : undefined;
+}
+
 function parseSpec(value: unknown): CpaModelSpec | undefined {
   if (!value || typeof value !== "object") return undefined;
   const record = value as Record<string, unknown>;
+  const serviceTiers = parseServiceTierIds(record.serviceTiers);
   const spec: CpaModelSpec = {
     ...(typeof record.displayName === "string" && record.displayName.trim() !== "" ? { displayName: record.displayName } : {}),
     ...(positiveInteger(record.contextWindow) ? { contextWindow: record.contextWindow as number } : {}),
@@ -68,6 +98,10 @@ function parseSpec(value: unknown): CpaModelSpec | undefined {
     ...(positiveInteger(record.maxTokens) ? { maxTokens: record.maxTokens as number } : {}),
     ...(stringList(record.reasoningLevels) ? { reasoningLevels: stringList(record.reasoningLevels) } : {}),
     ...(stringList(record.inputModalities) ? { inputModalities: stringList(record.inputModalities) } : {}),
+    ...(typeof record.supportsReasoningEffortUpdates === "boolean"
+      ? { supportsReasoningEffortUpdates: record.supportsReasoningEffortUpdates }
+      : {}),
+    ...(serviceTiers ? { serviceTiers } : {}),
   };
   return Object.keys(spec).length > 0 ? spec : undefined;
 }
@@ -78,12 +112,16 @@ function parseCpaModelEntries(entries: unknown[]): CpaModel[] {
     const record = entry as Record<string, unknown>;
     if (typeof record.id !== "string" || record.id.trim() === "") return [];
     const spec = parseSpec(record.spec);
+    const lastSeenAt = positiveTimestamp(record.lastSeenAt);
+    const staleSince = positiveTimestamp(record.staleSince);
     return [{
       id: record.id,
       object: typeof record.object === "string" ? record.object : undefined,
       owned_by: typeof record.owned_by === "string" ? record.owned_by : undefined,
       created: typeof record.created === "number" ? record.created : undefined,
       ...(spec ? { spec } : {}),
+      ...(lastSeenAt !== undefined ? { lastSeenAt } : {}),
+      ...(staleSince !== undefined ? { staleSince } : {}),
     }];
   });
 
@@ -137,6 +175,7 @@ export function parseCpaModelSpecs(payload: unknown): Map<string, CpaModelSpec> 
       })
       : [];
     const input = stringList(record.input_modalities);
+    const serviceTiers = parseServiceTierIds(record.service_tiers);
     const spec = parseSpec({
       displayName: record.display_name,
       contextWindow: record.context_window,
@@ -144,6 +183,10 @@ export function parseCpaModelSpecs(payload: unknown): Map<string, CpaModelSpec> 
       maxTokens,
       ...(levels.length > 0 ? { reasoningLevels: levels } : {}),
       ...(input && input.length > 0 ? { inputModalities: input } : {}),
+      ...(typeof record.supports_reasoning_effort_updates === "boolean"
+        ? { supportsReasoningEffortUpdates: record.supports_reasoning_effort_updates }
+        : {}),
+      ...(serviceTiers ? { serviceTiers } : {}),
     });
     if (spec) specs.set(id, spec);
   }
@@ -156,6 +199,44 @@ export function withCpaModelSpecs(models: CpaModel[], specs: ReadonlyMap<string,
     const spec = specs.get(model.id);
     return spec ? { ...model, spec } : model;
   });
+}
+
+export interface StaleMergeResult {
+  models: CpaModel[];
+  retainedStaleCount: number;
+}
+
+/**
+ * Merge a background discovery response with the previous CPA snapshot so a
+ * single upstream account or provider temporarily dropping out of `/v1/models`
+ * does not immediately prune its models. Models missing past `staleTtlMs` drop;
+ * manual refreshes bypass this and replace the snapshot cleanly.
+ */
+export function mergeCpaModelsWithStaleRetention(
+  previous: readonly CpaModel[],
+  fresh: readonly CpaModel[],
+  now: number,
+  staleTtlMs = DEFAULT_STALE_MODEL_TTL_MS,
+  fallbackLastSeen?: number,
+): StaleMergeResult {
+  const byId = new Map<string, CpaModel>();
+  for (const model of fresh) {
+    const { staleSince: _cleared, ...rest } = model;
+    byId.set(model.id, { ...rest, lastSeenAt: now });
+  }
+
+  let retainedStaleCount = 0;
+  for (const prev of previous) {
+    if (byId.has(prev.id)) continue;
+    const staleSince = prev.staleSince ?? now;
+    if (now - staleSince >= staleTtlMs) continue;
+    const lastSeenAt = prev.lastSeenAt ?? fallbackLastSeen ?? staleSince;
+    byId.set(prev.id, { ...prev, lastSeenAt, staleSince });
+    retainedStaleCount += 1;
+  }
+
+  const models = [...byId.values()].sort((left, right) => left.id.localeCompare(right.id));
+  return { models, retainedStaleCount };
 }
 
 export async function fetchCpaModels(

@@ -902,3 +902,47 @@ test("a Codex route publishes CPA's context_window by default and its max_contex
   const full = await withSpecs(cpa, {}, "full");
   assert.equal(full["gpt-6-sol"].contextWindow, 872000);
 });
+
+test("publishes Codex mid-convo effort from CPA's supports_reasoning_effort_updates flag", async () => {
+  const profiles = await loadPiModelProfiles({
+    getBuiltinProviders: () => ["openai-codex"],
+    getBuiltinModels: () => [
+      piModel("gpt-6-astra", {
+        api: "openai-codex-responses",
+        compat: { supportsMidConvoEffort: true } as Model<Api>["compat"],
+      }),
+      piModel("gpt-5.6-sol", {
+        api: "openai-codex-responses",
+      }),
+    ],
+    getBuiltinModelDataGeneratedAt: () => 1_700_000_000_000,
+  });
+
+  const result = buildProviderModels(
+    [
+      { id: "gpt-6-astra", owned_by: "openai", spec: { maxTokens: 128000, supportsReasoningEffortUpdates: true } },
+      { id: "plus/gpt-6-astra", owned_by: "openai", spec: { maxTokens: 128000, supportsReasoningEffortUpdates: true } },
+      { id: "devin/gpt-6-astra", owned_by: "openai", spec: { maxTokens: 64000, supportsReasoningEffortUpdates: false } },
+      { id: "gpt-5.6-sol", owned_by: "openai", spec: { maxTokens: 128000, supportsReasoningEffortUpdates: false } },
+      // Before specs refresh (no supportsReasoningEffortUpdates in cache): falls back to pi's native profile except devin/*.
+      { id: "team/gpt-6-astra", owned_by: "openai" },
+      { id: "devin/gpt-6-astra-nospec", owned_by: "openai" },
+    ],
+    {}, {}, "canonical", {}, null, profiles,
+  );
+  const byId = Object.fromEntries(result.models.map((model) => [model.id, model]));
+
+  assert.deepEqual(byId["gpt-6-astra"].compat, { supportsMidConvoEffort: true });
+  assert.deepEqual(byId["plus/gpt-6-astra"].compat, { supportsMidConvoEffort: true });
+  assert.equal(byId["devin/gpt-6-astra"].compat, undefined, "CPA explicitly disables mid-convo effort on Devin routes");
+  assert.equal(byId["gpt-5.6-sol"].compat, undefined);
+  assert.deepEqual(byId["team/gpt-6-astra"].compat, { supportsMidConvoEffort: true });
+  assert.equal(byId["devin/gpt-6-astra-nospec"].compat, undefined);
+
+  const disabled = buildProviderModels(
+    [{ id: "gpt-6-astra", owned_by: "openai", spec: { maxTokens: 128000, supportsReasoningEffortUpdates: true } }],
+    {}, {}, "canonical", {}, null, profiles,
+    { perTurnEffort: false, midConversationUpdates: true, messageThreads: false },
+  );
+  assert.equal(disabled.models[0].compat, undefined, "perTurnEffort=false gates Codex mid-convo effort too");
+});

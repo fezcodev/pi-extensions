@@ -126,6 +126,8 @@ export CLIPROXYAPI_API_KEY=your-key
 /cliproxyapi aliases            # show unmatched model IDs for metadata aliases
 /cliproxyapi models             # inspect effective model settings and set bounded overrides
 /cliproxyapi help               # show this list
+/fast                           # toggle Codex service_tier: "priority" for this session
+/ultrafast                      # toggle Codex service_tier: "ultrafast" for this session
 ```
 
 ## Thinking levels
@@ -147,11 +149,18 @@ Among those fallbacks, pi's own native definition wins for Claude and Codex-serv
 
 A model with neither a usable CPA list nor any of those sources keeps pi's non-reasoning default, which `/cliproxyapi models` can override.
 
-### Per-turn effort (Claude)
+### Per-turn effort (Claude and Codex GPT-6)
 
-**Requires CLIProxyAPI v8.0.3 or later.** Older releases reject the per-turn directive with `messages.N.output_config: Extra inputs are not permitted`, which fails every request to these models; set `"perTurnEffort": false` (or disable it under `/cliproxyapi config` → `Models`) for them, and effort goes back to the request's top-level `output_config`.
+**Claude requires CLIProxyAPI v8.0.3 or later.** Older releases reject the per-turn directive with `messages.N.output_config: Extra inputs are not permitted`, which fails every request to these models; set `"perTurnEffort": false` (or disable it under `/cliproxyapi config` → `Models`) for them, and effort goes back to the request's top-level `output_config`.
 
-Claude models that pi's native catalog marks with `supportsMidConvoEffort` (Opus 5, Opus 5.5, Sonnet 5.5 and Fable 5.1 in pi 1.0) publish it here too, when CLIProxyAPI reports them under the `anthropic` owner. A model it serves from another upstream (Antigravity, an OpenAI-compatible provider) is translated away from the Messages shape, where the directive cannot survive, so it keeps top-level effort. Changing the thinking level mid-session then becomes a per-turn directive instead of a change to the request's top-level `output_config`, so the prompt cache survives the switch: verified through CLIProxyAPI v8.0.3, where an effort switch across a tool loop kept reading the whole cached conversation while the top-level form re-wrote it. Signed thinking replays across the switch. Other Claude models keep top-level effort.
+- **Claude:** models that pi's native catalog marks with `supportsMidConvoEffort` (Opus 5, Opus 5.5, Sonnet 5.5 and Fable 5.1) publish it here when CLIProxyAPI reports them under the `anthropic` owner (excluding `devin/` routes). Changing thinking level mid-session sends a per-turn directive instead of rewriting top-level `output_config`, preserving the prompt cache and signed thinking replay.
+- **Codex GPT-6:** models whose CLIProxyAPI catalog entry advertises `supports_reasoning_effort_updates: true` (pure-Codex GPT-6 routes; `devin/*` and `gpt-5.6-*` report `false`) publish `supportsMidConvoEffort` when `perTurnEffort` is enabled. Pi's Responses driver then pins top-level `reasoning.effort` and carries changes in append-only `configuration_update` input items, preserving the prompt cache across mid-session effort changes.
+
+### Session speed tiers (`/fast`, `/ultrafast`)
+
+`/fast` (`service_tier: "priority"`) and `/ultrafast` (`service_tier: "ultrafast"`) toggle faster Codex service tiers **for the current session only** — every new or resumed session starts standard so priority credits are never spent accidentally. Modes are mutually exclusive; running the active command again turns it off, and running the other switches directly.
+
+Eligibility comes from CLIProxyAPI's `/v1/models?client_version=` `service_tiers` array, and `service_tier` is only injected on CPA `openai-responses` requests when the selected model advertises that tier and the payload does not already set `service_tier`. Non-Codex routes (including Claude models and separate Console-billing aliases such as `claude-opus-5-5-fast`) advertise no service tiers and are never modified. When active on the current model, TUI sessions show `fast` or `ultrafast` via pi's status bar; `/cliproxyapi models` lists each model's advertised tiers.
 
 ### Mid-conversation updates (Claude)
 
@@ -242,7 +251,7 @@ Every model discovery pi triggers (startup, opening `/model`) re-checks CLIProxy
 
 So the seed is a floor, never a ceiling: the first successful models.dev fetch writes a cache snapshot that **supersedes it entirely**, and from then on the seed is not consulted again unless that cache is deleted or turns out to be a legacy one without source-provider identity. `/cliproxyapi status` names the current source — `builtin (pi catalog generated <age>)` before the first fetch, `cache, <age>` after it.
 
-Manual refreshes update the running provider immediately; `/reload` is not required. Failed refreshes retain the last-known-good data independently for each source — a models.dev outage never blocks CLIProxyAPI model discovery.
+Manual refreshes update the running provider immediately and replace the CPA snapshot cleanly (dropping any stale entries); `/reload` is not required. Background refreshes retain individually missing models as stale for 7 days so a transient upstream blip does not prune valid models from `/model`. Failed refreshes retain the last-known-good data independently for each source — a models.dev outage never blocks CLIProxyAPI model discovery.
 
 ## How metadata is sourced
 

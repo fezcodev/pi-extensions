@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ServiceTier, ServiceTierModelRef } from "./service-tier.ts";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -37,7 +38,36 @@ export function rewriteCodexCompatibleToolPayload(
   return changed ? { ...payload, tools } : undefined;
 }
 
-export function registerCodexCompatiblePayloadAdapter(pi: ExtensionAPI, providerName: string): void {
+/**
+ * Apply Codex-compatible Responses payload rewrites: `strict: null` on function
+ * tools and optional session `service_tier` injection when the payload has not
+ * already specified one.
+ */
+export function rewriteCodexCompatiblePayload(
+  payload: unknown,
+  model: ServiceTierModelRef | null | undefined,
+  providerName: string,
+  resolveServiceTier?: (model: ServiceTierModelRef | null | undefined) => ServiceTier | undefined,
+): unknown | undefined {
+  if (!isResponsesModel(model, providerName) || !isRecord(payload)) {
+    return undefined;
+  }
+
+  const rewrittenTools = rewriteCodexCompatibleToolPayload(payload, model, providerName);
+  const base = (rewrittenTools ?? payload) as Record<string, unknown>;
+  const tier = base.service_tier === undefined ? resolveServiceTier?.(model) : undefined;
+
+  if (tier !== undefined) {
+    return { ...base, service_tier: tier };
+  }
+  return rewrittenTools;
+}
+
+export function registerCodexCompatiblePayloadAdapter(
+  pi: ExtensionAPI,
+  providerName: string,
+  resolveServiceTier?: (model: ServiceTierModelRef | null | undefined) => ServiceTier | undefined,
+): void {
   pi.on("before_provider_request", (event, ctx) =>
-    rewriteCodexCompatibleToolPayload(event.payload, ctx.model, providerName));
+    rewriteCodexCompatiblePayload(event.payload, ctx.model, providerName, resolveServiceTier));
 }

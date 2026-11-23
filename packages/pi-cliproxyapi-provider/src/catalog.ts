@@ -1,6 +1,15 @@
 import { cpaModelsCachePath, discoveryHeaders, modelsDevCachePath } from "./discovery.ts";
 import { readCache, writeCache, type CacheEnvelope } from "./cache.ts";
-import { fetchCpaModels, fetchCpaModelSpecs, parseCpaModelsCache, withCpaModelSpecs, type CpaModel, type CpaModelSpec } from "./cpa.ts";
+import {
+  DEFAULT_STALE_MODEL_TTL_MS,
+  fetchCpaModels,
+  fetchCpaModelSpecs,
+  mergeCpaModelsWithStaleRetention,
+  parseCpaModelsCache,
+  withCpaModelSpecs,
+  type CpaModel,
+  type CpaModelSpec,
+} from "./cpa.ts";
 import { builtinSeedCatalog } from "./builtin-seed.ts";
 import { fetchModelsDevCatalog, hasSourceProviderMetadata, parseModelsDevCatalog } from "./models-dev.ts";
 import { loadPiModelProfiles, NO_PI_PROFILES, type PiModelProfiles } from "./pi-profiles.ts";
@@ -49,6 +58,8 @@ export interface SourceRefreshResult {
   error?: unknown;
   /** CPA's model-spec catalog failed; the model list still updated and kept the previous specs. */
   specError?: unknown;
+  /** Missing models retained from the previous snapshot during a background refresh. */
+  retainedStaleCount?: number;
 }
 
 export interface CatalogRefreshResult {
@@ -76,6 +87,8 @@ export interface ProviderCatalogOptions {
   metadataBackgroundTimeoutMs?: number;
   /** Age after which a routine refresh re-fetches models.dev. Defaults to {@link METADATA_STALE_AFTER_MS}. */
   metadataStaleAfterMs?: number;
+  /** How long a model missing from background discovery stays retained. Defaults to 7 days. */
+  staleModelTtlMs?: number;
   writeSnapshot?: typeof writeCache;
   now?: () => number;
   /** Source of pi's native model profiles. Defaults to the running pi's built-in catalog. */
@@ -93,8 +106,15 @@ function canonicalJson(value: unknown): string {
   return JSON.stringify(value);
 }
 
+function normalizeCpaModelsForComparison(models: readonly CpaModel[]): unknown[] {
+  return models.map(({ lastSeenAt: _lastSeenAt, staleSince, ...rest }) => ({
+    ...rest,
+    ...(staleSince !== undefined ? { stale: true } : {}),
+  }));
+}
+
 function sameCpaModels(left: CpaModel[], right: CpaModel[]): boolean {
-  return canonicalJson(left) === canonicalJson(right);
+  return canonicalJson(normalizeCpaModelsForComparison(left)) === canonicalJson(normalizeCpaModelsForComparison(right));
 }
 
 /** The specs a snapshot already holds, so a failed spec fetch keeps last-known-good values. */
@@ -251,12 +271,26 @@ export class ProviderCatalog {
         }
         const specResult = await specsRequest;
         if (signal?.aborted) throw signal.reason ?? new Error("Refresh aborted");
-        const fresh = withCpaModelSpecs(listed, "specs" in specResult ? specResult.specs : previousSpecs(current.cpaModels));
+        const freshUpdatedAt = (this.options.now ?? Date.now)();
+        const withSpecs = withCpaModelSpecs(listed, "specs" in specResult ? specResult.specs : previousSpecs(current.cpaModels));
         if ("error" in specResult) models.specError = specResult.error;
-        const freshUpdatedAt = Date.now();
-        const changed = !sameCpaModels(current.cpaModels, fresh);
-        await (this.options.writeSnapshot ?? writeCache)(cpaModelsCachePath(this.options.config), fresh, freshUpdatedAt);
-        cpaModels = fresh;
+        let nextModels: CpaModel[];
+        if (mode === "background") {
+          const merged = mergeCpaModelsWithStaleRetention(
+            current.cpaModels,
+            withSpecs,
+            freshUpdatedAt,
+            this.options.staleModelTtlMs ?? DEFAULT_STALE_MODEL_TTL_MS,
+            current.cpaUpdatedAt,
+          );
+          nextModels = merged.models;
+          if (merged.retainedStaleCount > 0) models.retainedStaleCount = merged.retainedStaleCount;
+        } else {
+          nextModels = withSpecs.map(({ staleSince: _cleared, ...model }) => ({ ...model, lastSeenAt: freshUpdatedAt }));
+        }
+        const changed = !sameCpaModels(current.cpaModels, nextModels);
+        await (this.options.writeSnapshot ?? writeCache)(cpaModelsCachePath(this.options.config), nextModels, freshUpdatedAt);
+        cpaModels = nextModels;
         cpaUpdatedAt = freshUpdatedAt;
         models.changed = changed;
         models.updated = true;

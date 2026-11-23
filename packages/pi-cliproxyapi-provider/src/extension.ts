@@ -8,14 +8,21 @@ import { registerCliproxyapiCommand } from "./commands.ts";
 import { getDiscoveryApiKey } from "./auth.ts";
 import { loadProviderSettings } from "./settings.ts";
 import { registerCodexCompatiblePayloadAdapter } from "./codex-compat.ts";
+import {
+  registerServiceTierCommands,
+  registerServiceTierLifecycle,
+  ServiceTierController,
+} from "./service-tier.ts";
 
 export default async function (pi: ExtensionAPI) {
   let config = DEFAULT_CONFIG;
+  let catalog: ProviderCatalog | undefined;
+  const serviceTier = new ServiceTierController(() => catalog?.current()?.cpaModels);
   try {
     const cwd = process.cwd();
     config = loadConfig(cwd);
     const settings = loadProviderSettings(cwd);
-    const catalog = new ProviderCatalog({
+    catalog = new ProviderCatalog({
       config,
       gpt56ContextWindow: settings.gpt56ContextWindow,
       perTurnEffort: settings.perTurnEffort,
@@ -24,11 +31,23 @@ export default async function (pi: ExtensionAPI) {
       getApiKey: () => getDiscoveryApiKey(config.providerName),
     });
     const runtime = new ProviderRuntime({ pi, config, catalog });
-    registerCodexCompatiblePayloadAdapter(pi, config.providerName);
-    registerCliproxyapiCommand(pi, runtime, catalog);
+    registerCodexCompatiblePayloadAdapter(
+      pi,
+      config.providerName,
+      (model) => serviceTier.effectiveTierFor(model, config.providerName),
+    );
+    registerServiceTierCommands(pi, config.providerName, serviceTier);
+    registerServiceTierLifecycle(pi, config.providerName, serviceTier);
+    registerCliproxyapiCommand(pi, runtime, catalog, serviceTier);
     await runtime.start();
   } catch (error) {
-    registerCodexCompatiblePayloadAdapter(pi, config.providerName);
+    registerCodexCompatiblePayloadAdapter(
+      pi,
+      config.providerName,
+      (model) => serviceTier.effectiveTierFor(model, config.providerName),
+    );
+    registerServiceTierCommands(pi, config.providerName, serviceTier);
+    registerServiceTierLifecycle(pi, config.providerName, serviceTier);
     registerCliproxyapiCommand(pi);
     pi.registerProvider(config.providerName, buildProviderRegistration(config, buildUnavailableProviderModels()).config);
     console.warn(`[pi-cliproxyapi-provider] registered placeholder provider after startup failure: ${error instanceof Error ? error.message : String(error)}`);

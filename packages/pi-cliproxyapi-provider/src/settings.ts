@@ -8,7 +8,7 @@ export type Gpt56ContextWindowMode = "canonical" | "full";
 
 export interface ProviderSettings {
   gpt56ContextWindow: Gpt56ContextWindowMode;
-  /** Publish pi's native per-turn Claude effort; needs CLIProxyAPI v8.0.3 or later. */
+  /** Publish mid-conversation effort (`supportsMidConvoEffort`) for Claude (v8.0.3+) and Codex GPT-6. */
   perTurnEffort: boolean;
   /** Publish pi's native Claude mid-conversation system messages and tool changes; needs CLIProxyAPI v8.0.4 or later. */
   midConversationUpdates: boolean;

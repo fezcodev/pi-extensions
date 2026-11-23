@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { rewriteCodexCompatibleToolPayload } from "../src/codex-compat.ts";
+import { rewriteCodexCompatiblePayload, rewriteCodexCompatibleToolPayload } from "../src/codex-compat.ts";
 
-const cpaResponsesModel = { provider: "cpa", api: "openai-responses" as const };
+const cpaResponsesModel = { id: "gpt-6.2-sol", provider: "cpa", api: "openai-responses" as const };
 
 test("publishes Codex-compatible null strict markers for CPA Responses function tools", () => {
   const functionTool = {
@@ -41,4 +41,30 @@ test("does not allocate a replacement when function tools already use null stric
   const payload = { tools: [{ type: "function", name: "test", strict: null }] };
 
   assert.equal(rewriteCodexCompatibleToolPayload(payload, cpaResponsesModel, "cpa"), undefined);
+});
+
+test("injects service_tier on CPA Responses requests without clobbering an existing tier", () => {
+  const payload = { model: "gpt-6.2-sol", tools: [{ type: "function", name: "bash" }] };
+  const rewritten = rewriteCodexCompatiblePayload(payload, cpaResponsesModel, "cpa", () => "ultrafast") as {
+    service_tier?: string;
+    tools: Array<Record<string, unknown>>;
+  };
+
+  assert.equal(rewritten.service_tier, "ultrafast");
+  assert.equal(rewritten.tools[0]?.strict, null);
+
+  const alreadySet = { model: "gpt-6.1-sol-fast", service_tier: "priority" };
+  assert.equal(rewriteCodexCompatiblePayload(alreadySet, cpaResponsesModel, "cpa", () => "ultrafast"), undefined);
+});
+
+test("never injects service_tier on Anthropic Messages or non-CPA models", () => {
+  const payload = { model: "claude-opus-5-5-fast" };
+  assert.equal(
+    rewriteCodexCompatiblePayload(payload, { id: "claude-opus-5-5-fast", provider: "cpa", api: "anthropic-messages" }, "cpa", () => "priority"),
+    undefined,
+  );
+  assert.equal(
+    rewriteCodexCompatiblePayload(payload, { id: "gpt-6.2-sol", provider: "openai", api: "openai-responses" }, "cpa", () => "priority"),
+    undefined,
+  );
 });
