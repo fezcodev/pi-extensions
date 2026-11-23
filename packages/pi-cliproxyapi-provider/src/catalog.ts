@@ -248,6 +248,7 @@ export class ProviderCatalog {
 
     if (models.attempted) {
       try {
+        const discoveryStartedAt = (this.options.now ?? Date.now)();
         const apiKey = await (getDiscoveryApiKey ?? this.options.getApiKey)();
         const headers = discoveryHeaders(this.options.config, apiKey);
         // The spec catalog is ~0.5-2.5 MB against the list's ~10 kB, so it gets
@@ -272,6 +273,18 @@ export class ProviderCatalog {
         const cachePath = cpaModelsCachePath(this.options.config);
         const committed = await withCacheLock(cachePath, async () => {
           const onDisk = await readCache(cachePath, parseCpaModelsCache);
+          if (mode === "background" && onDisk && onDisk.fetchedAt > discoveryStartedAt) {
+            // Another session committed a newer snapshot (e.g. manual refresh)
+            // after this background discovery began; adopt it instead of
+            // overwriting with older discovery results.
+            const retainedStaleCount = onDisk.data.filter((model) => model.staleSince !== undefined).length;
+            return {
+              nextModels: onDisk.data,
+              freshUpdatedAt: onDisk.fetchedAt,
+              changed: !sameCpaModels(current.cpaModels, onDisk.data),
+              retainedStaleCount,
+            };
+          }
           const baselineModels = onDisk?.data ?? current.cpaModels;
           const baselineUpdatedAt = onDisk?.fetchedAt ?? current.cpaUpdatedAt;
           const freshUpdatedAt = (this.options.now ?? Date.now)();

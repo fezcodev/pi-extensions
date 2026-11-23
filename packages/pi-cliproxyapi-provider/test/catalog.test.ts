@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
 import { ProviderCatalog } from "../src/catalog.ts";
 import { cpaModelsCachePath, modelsDevCachePath } from "../src/discovery.ts";
-import { writeCache } from "../src/cache.ts";
+import { withCacheLock, writeCache } from "../src/cache.ts";
 import type { CpaProviderConfig } from "../src/types.ts";
 
 const config: CpaProviderConfig = {
@@ -619,5 +619,111 @@ test("background refresh merges against latest on-disk cache so another session 
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+});
+
+test("in-flight background discovery that predates a newer committed snapshot adopts the newer disk cache instead of overwriting", async () => {
+  await withTempHome(async () => {
+    let now = 3_000_000;
+    const ttl = 60_000;
+    await writeCache(cpaModelsCachePath(config), [
+      { id: "steady-model", owned_by: "openai", lastSeenAt: now },
+      { id: "removed-model", owned_by: "openai", lastSeenAt: now },
+    ], now);
+
+    const sessionA = new ProviderCatalog({
+      config,
+      gpt56ContextWindow: "canonical",
+      getApiKey: async () => undefined,
+      staleModelTtlMs: ttl,
+      now: () => now,
+    });
+    const sessionB = new ProviderCatalog({
+      config,
+      gpt56ContextWindow: "canonical",
+      getApiKey: async () => undefined,
+      staleModelTtlMs: ttl,
+      now: () => now,
+    });
+    await sessionA.load();
+    await sessionB.load();
+
+    let releaseSlowSpecs!: () => void;
+    let slowSpecsStarted!: () => void;
+    const slowSpecsReady = new Promise<void>((resolve) => { slowSpecsStarted = resolve; });
+    const slowSpecsGate = new Promise<void>((resolve) => { releaseSlowSpecs = resolve; });
+    let phase: "slow-bg" | "manual" = "slow-bg";
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const target = String(url);
+      if (phase === "slow-bg") {
+        if (target.includes("client_version")) {
+          slowSpecsStarted();
+          await slowSpecsGate;
+          return new Response(JSON.stringify({ models: [] }), { status: 200 });
+        }
+        // Background refresh saw removed-model before manual refresh cleared it.
+        return new Response(JSON.stringify({
+          data: [
+            { id: "steady-model", owned_by: "openai" },
+            { id: "removed-model", owned_by: "openai" },
+          ],
+        }), { status: 200 });
+      }
+      if (target.includes("client_version")) {
+        return new Response(JSON.stringify({ models: [] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ data: [{ id: "steady-model", owned_by: "openai" }] }), { status: 200 });
+    }) as typeof fetch;
+
+    try {
+      now += 1_000;
+      const slowBgPromise = sessionB.refresh("models", "background");
+      await slowSpecsReady;
+
+      // While sessionB is waiting on slow specs, sessionA manually removes removed-model at a later timestamp.
+      phase = "manual";
+      now += 500;
+      const manual = await sessionA.refresh("models", "manual");
+      assert.deepEqual(manual.snapshot.cpaModels.map((m) => m.id), ["steady-model"]);
+
+      // Now sessionB's slower background discovery finishes; it must adopt sessionA's newer commit.
+      now += 500;
+      releaseSlowSpecs();
+      const slowBg = await slowBgPromise;
+      assert.deepEqual(slowBg.snapshot.cpaModels.map((m) => m.id), ["steady-model"]);
+
+      const sessionC = new ProviderCatalog({
+        config,
+        gpt56ContextWindow: "canonical",
+        getApiKey: async () => undefined,
+      });
+      const loadedC = await sessionC.load();
+      assert.deepEqual(loadedC.cpaModels.map((m) => m.id), ["steady-model"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("withCacheLock refuses unlocked writes on timeout and releases its in-process gate after errors", async () => {
+  await withTempHome(async () => {
+    const cachePath = cpaModelsCachePath(config);
+    const lockPath = `${cachePath}.lock`;
+    await writeCache(cachePath, [{ id: "existing" }], 100);
+    await writeFile(lockPath, "foreign-owner", "utf8");
+
+    let ran = false;
+    await assert.rejects(
+      () => withCacheLock(cachePath, async () => { ran = true; }, { timeoutMs: 40, retryMs: 10, staleMs: 60_000 }),
+      /Timed out waiting for cache lock/,
+    );
+    assert.equal(ran, false);
+
+    // Once the foreign lock clears, the next caller must not hang on a wedged in-process gate.
+    await rm(lockPath, { force: true });
+    const result = await withCacheLock(cachePath, async () => "ok", { timeoutMs: 200, retryMs: 10 });
+    assert.equal(result, "ok");
   });
 });

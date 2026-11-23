@@ -74,13 +74,25 @@ test("never injects service_tier on Anthropic Messages or non-CPA models", () =>
 });
 
 test("createCpaResponsesStreamSimple scopes rewrites to the actual request model and chains caller onPayload", async () => {
-  const seen: Array<{ payload: Record<string, unknown>; model: { provider: string; id: string; api: string } }> = [];
+  const seen: Array<{ path: "stream" | "streamSimple"; payload: Record<string, unknown>; options: Record<string, unknown>; model: { provider: string; id: string; api: string } }> = [];
   let downstreamPayload: Record<string, unknown> | undefined;
   const fakeResponsesApi = {
+    stream: (model: any, _context: any, options: any) => {
+      const payload: Record<string, unknown> = {
+        model: model.id,
+        tools: [{ type: "function", name: "bash" }],
+        ...(options.serviceTier !== undefined ? { service_tier: options.serviceTier } : {}),
+        ...(options.reasoningEffort !== undefined ? { reasoning: { effort: options.reasoningEffort } } : {}),
+      };
+      const promise = Promise.resolve(options.onPayload(payload, model)).then((finalPayload) => {
+        seen.push({ path: "stream", payload: finalPayload, options, model });
+      });
+      return promise as any;
+    },
     streamSimple: (model: any, _context: any, options: any) => {
       const payload = { model: model.id, tools: [{ type: "function", name: "bash" }] };
       const promise = Promise.resolve(options.onPayload(payload, model)).then((finalPayload) => {
-        seen.push({ payload: finalPayload, model });
+        seen.push({ path: "streamSimple", payload: finalPayload, options, model });
       });
       return promise as any;
     },
@@ -94,6 +106,7 @@ test("createCpaResponsesStreamSimple scopes rewrites to the actual request model
 
   // CPA Responses request receives strict: null + service_tier before caller onPayload runs.
   await (streamSimple(cpaResponsesModel as any, { messages: [] } as any, {
+    reasoning: "high",
     onPayload: (payload) => {
       downstreamPayload = payload as Record<string, unknown>;
       return { ...(payload as Record<string, unknown>), touchedByCaller: true };
@@ -102,12 +115,24 @@ test("createCpaResponsesStreamSimple scopes rewrites to the actual request model
 
   assert.equal(downstreamPayload?.service_tier, "priority");
   assert.equal((downstreamPayload?.tools as Array<Record<string, unknown>>)?.[0]?.strict, null);
+  assert.equal(seen[0]?.path, "streamSimple");
   assert.equal(seen[0]?.payload.service_tier, "priority");
   assert.equal(seen[0]?.payload.touchedByCaller, true);
+
+  // Full OpenAIResponsesOptions (`serviceTier: "default"`, `reasoningEffort`) use the full `stream` path
+  // and must never be overwritten with the session's `/fast` tier.
+  await (streamSimple(cpaResponsesModel as any, { messages: [] } as any, {
+    serviceTier: "default",
+    reasoningEffort: "low",
+  } as any) as unknown as Promise<void>);
+  assert.equal(seen[1]?.path, "stream");
+  assert.equal(seen[1]?.payload.service_tier, "default");
+  assert.deepEqual(seen[1]?.payload.reasoning, { effort: "low" });
+  assert.equal((seen[1]?.payload.tools as Array<Record<string, unknown>>)?.[0]?.strict, null);
 
   // If a non-CPA model somehow reaches the wrapper, it is left completely untouched.
   const directCodex = { id: "gpt-6.2-sol", provider: "openai-codex", api: "openai-codex-responses" };
   await (streamSimple(directCodex as any, { messages: [] } as any, {}) as unknown as Promise<void>);
-  assert.equal(seen[1]?.payload.service_tier, undefined);
-  assert.equal((seen[1]?.payload.tools as Array<Record<string, unknown>>)?.[0]?.strict, undefined);
+  assert.equal(seen[2]?.payload.service_tier, undefined);
+  assert.equal((seen[2]?.payload.tools as Array<Record<string, unknown>>)?.[0]?.strict, undefined);
 });

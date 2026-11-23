@@ -15,9 +15,18 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function acquireFileLock(lockPath: string, token: string): Promise<boolean> {
+export interface CacheLockOptions {
+  timeoutMs?: number;
+  staleMs?: number;
+  retryMs?: number;
+}
+
+async function acquireFileLock(lockPath: string, token: string, options: CacheLockOptions = {}): Promise<void> {
   await mkdir(dirname(lockPath), { recursive: true, mode: 0o700 });
-  const deadline = Date.now() + CACHE_LOCK_TIMEOUT_MS;
+  const timeoutMs = options.timeoutMs ?? CACHE_LOCK_TIMEOUT_MS;
+  const staleMs = options.staleMs ?? CACHE_LOCK_STALE_MS;
+  const retryMs = options.retryMs ?? CACHE_LOCK_RETRY_MS;
+  const deadline = Date.now() + timeoutMs;
   for (;;) {
     try {
       const handle = await open(lockPath, "wx", 0o600);
@@ -26,20 +35,24 @@ async function acquireFileLock(lockPath: string, token: string): Promise<boolean
       } finally {
         await handle.close();
       }
-      return true;
+      return;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") return false;
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      if (Date.now() >= deadline) {
+        throw new Error(`Timed out waiting for cache lock: ${lockPath}`);
+      }
       try {
         const info = await stat(lockPath);
-        if (Date.now() - info.mtimeMs >= CACHE_LOCK_STALE_MS) {
+        if (Date.now() - info.mtimeMs >= staleMs) {
           await rm(lockPath, { force: true });
-          continue;
         }
       } catch {
-        continue;
+        // Lock disappeared or could not be removed; fall through to bounded retry.
       }
-      if (Date.now() >= deadline) return false;
-      await delay(CACHE_LOCK_RETRY_MS);
+      if (Date.now() >= deadline) {
+        throw new Error(`Timed out waiting for cache lock: ${lockPath}`);
+      }
+      await delay(retryMs);
     }
   }
 }
@@ -58,7 +71,11 @@ async function releaseFileLock(lockPath: string, token: string): Promise<void> {
  * Serialize read-modify-write cache updates per cache path across both
  * concurrent callers in this process and separate Pi sessions sharing the file.
  */
-export async function withCacheLock<T>(path: string, fn: () => Promise<T>): Promise<T> {
+export async function withCacheLock<T>(
+  path: string,
+  fn: () => Promise<T>,
+  options?: CacheLockOptions,
+): Promise<T> {
   const previous = inProcessCacheLocks.get(path) ?? Promise.resolve();
   let releaseInProcess!: () => void;
   const gate = new Promise<void>((resolve) => {
@@ -70,8 +87,10 @@ export async function withCacheLock<T>(path: string, fn: () => Promise<T>): Prom
 
   const lockPath = `${path}.lock`;
   const token = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  const acquired = await acquireFileLock(lockPath, token);
+  let acquired = false;
   try {
+    await acquireFileLock(lockPath, token, options);
+    acquired = true;
     return await fn();
   } finally {
     if (acquired) await releaseFileLock(lockPath, token);

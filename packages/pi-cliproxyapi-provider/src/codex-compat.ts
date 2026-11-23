@@ -65,27 +65,41 @@ export function rewriteCodexCompatiblePayload(
   return rewrittenTools;
 }
 
+function hasFullResponsesOptions(options: unknown): boolean {
+  if (!isRecord(options) || options.reasoning !== undefined) return false;
+  return options.reasoningEffort !== undefined
+    || options.reasoningSummary !== undefined
+    || options.serviceTier !== undefined;
+}
+
 /**
  * Provider-scoped OpenAI Responses stream wrapper for CLIProxyAPI models.
  * Runs against the actual request model (`payloadModel`) rather than the
  * currently selected UI model, so concurrent requests on other providers are
- * never rewritten.
+ * never rewritten. Preserves both full `stream()` options (`reasoningEffort`,
+ * `reasoningSummary`, `serviceTier`) and `streamSimple()` options.
  */
 export function createCpaResponsesStreamSimple(
   providerName: string,
   resolveServiceTier?: (model: ServiceTierModelRef | null | undefined) => ServiceTier | undefined,
-  responsesApi: Pick<ProviderStreams, "streamSimple"> = openAIResponsesApi(),
+  responsesApi: Pick<ProviderStreams, "stream" | "streamSimple"> = openAIResponsesApi(),
 ): NonNullable<ProviderConfig["streamSimple"]> {
   return (model, context, options) => {
     const baseOnPayload = options?.onPayload;
-    return responsesApi.streamSimple(model, context, {
+    const explicitServiceTier = isRecord(options) && options.serviceTier !== undefined;
+    const tierResolver = explicitServiceTier ? undefined : resolveServiceTier;
+    const wrappedOptions = {
       ...options,
-      onPayload: async (payload, payloadModel) => {
-        const rewritten = rewriteCodexCompatiblePayload(payload, payloadModel, providerName, resolveServiceTier);
+      onPayload: async (payload: unknown, payloadModel: typeof model) => {
+        const rewritten = rewriteCodexCompatiblePayload(payload, payloadModel, providerName, tierResolver);
         const next = rewritten ?? payload;
         if (!baseOnPayload) return next;
         return (await baseOnPayload(next, payloadModel)) ?? next;
       },
-    });
+    };
+    if (hasFullResponsesOptions(options)) {
+      return responsesApi.stream(model, context, wrappedOptions);
+    }
+    return responsesApi.streamSimple(model, context, wrappedOptions);
   };
 }
