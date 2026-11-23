@@ -32,7 +32,7 @@ export default async function (pi: ExtensionAPI) {
     });
     const streamSimple = createCpaResponsesStreamSimple(
       config.providerName,
-      (model) => serviceTier.effectiveTierFor(model, config.providerName),
+      (model, sessionId) => serviceTier.effectiveTierForRequest(model, config.providerName, sessionId),
     );
     const runtime = new ProviderRuntime({
       pi,

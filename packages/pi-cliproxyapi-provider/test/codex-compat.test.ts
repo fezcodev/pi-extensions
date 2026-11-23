@@ -100,13 +100,18 @@ test("createCpaResponsesStreamSimple scopes rewrites to the actual request model
 
   const streamSimple = createCpaResponsesStreamSimple(
     "cpa",
-    (model) => (model?.provider === "cpa" && model.id === "gpt-6.2-sol" ? "priority" : undefined),
+    (model, sessionId) => (
+      model?.provider === "cpa" && model.id === "gpt-6.2-sol" && sessionId === "active-session"
+        ? "priority"
+        : undefined
+    ),
     fakeResponsesApi as any,
   );
 
-  // CPA Responses request receives strict: null + service_tier before caller onPayload runs.
+  // CPA Responses request for the active session receives strict: null + service_tier before caller onPayload runs.
   await (streamSimple(cpaResponsesModel as any, { messages: [] } as any, {
     reasoning: "high",
+    sessionId: "active-session",
     onPayload: (payload) => {
       downstreamPayload = payload as Record<string, unknown>;
       return { ...(payload as Record<string, unknown>), touchedByCaller: true };
@@ -119,20 +124,31 @@ test("createCpaResponsesStreamSimple scopes rewrites to the actual request model
   assert.equal(seen[0]?.payload.service_tier, "priority");
   assert.equal(seen[0]?.payload.touchedByCaller, true);
 
+  // Background/independent requests with another sessionId (e.g. Auto Permissions reviewer) keep strict: null
+  // but must NOT inherit `/fast` priority billing from the active session.
+  await (streamSimple(cpaResponsesModel as any, { messages: [] } as any, {
+    reasoning: "low",
+    sessionId: "reviewer-session",
+  }) as unknown as Promise<void>);
+  assert.equal(seen[1]?.path, "streamSimple");
+  assert.equal(seen[1]?.payload.service_tier, undefined);
+  assert.equal((seen[1]?.payload.tools as Array<Record<string, unknown>>)?.[0]?.strict, null);
+
   // Full OpenAIResponsesOptions (`serviceTier: "default"`, `reasoningEffort`) use the full `stream` path
   // and must never be overwritten with the session's `/fast` tier.
   await (streamSimple(cpaResponsesModel as any, { messages: [] } as any, {
+    sessionId: "active-session",
     serviceTier: "default",
     reasoningEffort: "low",
   } as any) as unknown as Promise<void>);
-  assert.equal(seen[1]?.path, "stream");
-  assert.equal(seen[1]?.payload.service_tier, "default");
-  assert.deepEqual(seen[1]?.payload.reasoning, { effort: "low" });
-  assert.equal((seen[1]?.payload.tools as Array<Record<string, unknown>>)?.[0]?.strict, null);
+  assert.equal(seen[2]?.path, "stream");
+  assert.equal(seen[2]?.payload.service_tier, "default");
+  assert.deepEqual(seen[2]?.payload.reasoning, { effort: "low" });
+  assert.equal((seen[2]?.payload.tools as Array<Record<string, unknown>>)?.[0]?.strict, null);
 
   // If a non-CPA model somehow reaches the wrapper, it is left completely untouched.
   const directCodex = { id: "gpt-6.2-sol", provider: "openai-codex", api: "openai-codex-responses" };
-  await (streamSimple(directCodex as any, { messages: [] } as any, {}) as unknown as Promise<void>);
-  assert.equal(seen[2]?.payload.service_tier, undefined);
-  assert.equal((seen[2]?.payload.tools as Array<Record<string, unknown>>)?.[0]?.strict, undefined);
+  await (streamSimple(directCodex as any, { messages: [] } as any, { sessionId: "active-session" }) as unknown as Promise<void>);
+  assert.equal(seen[3]?.payload.service_tier, undefined);
+  assert.equal((seen[3]?.payload.tools as Array<Record<string, unknown>>)?.[0]?.strict, undefined);
 });

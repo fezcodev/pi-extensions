@@ -271,7 +271,7 @@ export class ProviderCatalog {
         if (signal?.aborted) throw signal.reason ?? new Error("Refresh aborted");
         if ("error" in specResult) models.specError = specResult.error;
         const cachePath = cpaModelsCachePath(this.options.config);
-        const committed = await withCacheLock(cachePath, async () => {
+        const committed = await withCacheLock(cachePath, async (assertLockHeld) => {
           const onDisk = await readCache(cachePath, parseCpaModelsCache);
           if (mode === "background" && onDisk && onDisk.fetchedAt > discoveryStartedAt) {
             // Another session committed a newer snapshot (e.g. manual refresh)
@@ -308,6 +308,7 @@ export class ProviderCatalog {
             nextModels = withSpecs.map(({ staleSince: _cleared, ...model }) => ({ ...model, lastSeenAt: freshUpdatedAt }));
           }
           const changed = !sameCpaModels(current.cpaModels, nextModels);
+          await assertLockHeld();
           await (this.options.writeSnapshot ?? writeCache)(cachePath, nextModels, freshUpdatedAt);
           return { nextModels, freshUpdatedAt, changed, retainedStaleCount };
         });

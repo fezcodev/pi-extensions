@@ -725,5 +725,25 @@ test("withCacheLock refuses unlocked writes on timeout and releases its in-proce
     await rm(lockPath, { force: true });
     const result = await withCacheLock(cachePath, async () => "ok", { timeoutMs: 200, retryMs: 10 });
     assert.equal(result, "ok");
+
+    // A lock owned by a live PID is never stolen even past staleMs.
+    await writeFile(lockPath, JSON.stringify({ pid: process.pid, token: "live-owner" }), "utf8");
+    await assert.rejects(
+      () => withCacheLock(cachePath, async () => "stolen", { timeoutMs: 40, retryMs: 10, staleMs: 0 }),
+      /Timed out waiting for cache lock/,
+    );
+    await rm(lockPath, { force: true });
+
+    // A dead PID lock is reclaimed cleanly.
+    await writeFile(lockPath, JSON.stringify({ pid: 999_999_999, token: "dead-owner" }), "utf8");
+    const reclaimed = await withCacheLock(cachePath, async (assertLockHeld) => {
+      await assertLockHeld();
+      // If ownership is lost externally before commit, the fence rejects.
+      await writeFile(lockPath, JSON.stringify({ pid: process.pid, token: "someone-else" }), "utf8");
+      await assert.rejects(() => assertLockHeld(), /Lost cache lock ownership/);
+      return "reclaimed";
+    }, { timeoutMs: 200, retryMs: 10, staleMs: 60_000 });
+    assert.equal(reclaimed, "reclaimed");
+    await rm(lockPath, { force: true });
   });
 });

@@ -21,7 +21,26 @@ export interface CacheLockOptions {
   retryMs?: number;
 }
 
-async function acquireFileLock(lockPath: string, token: string, options: CacheLockOptions = {}): Promise<void> {
+function isProcessAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
+function parseLockOwnerPid(raw: string): number | undefined {
+  try {
+    const parsed = JSON.parse(raw) as { pid?: unknown };
+    return typeof parsed?.pid === "number" ? parsed.pid : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function acquireFileLock(lockPath: string, payload: string, options: CacheLockOptions = {}): Promise<void> {
   await mkdir(dirname(lockPath), { recursive: true, mode: 0o700 });
   const timeoutMs = options.timeoutMs ?? CACHE_LOCK_TIMEOUT_MS;
   const staleMs = options.staleMs ?? CACHE_LOCK_STALE_MS;
@@ -31,7 +50,7 @@ async function acquireFileLock(lockPath: string, token: string, options: CacheLo
     try {
       const handle = await open(lockPath, "wx", 0o600);
       try {
-        await handle.writeFile(token, "utf8");
+        await handle.writeFile(payload, "utf8");
       } finally {
         await handle.close();
       }
@@ -42,12 +61,17 @@ async function acquireFileLock(lockPath: string, token: string, options: CacheLo
         throw new Error(`Timed out waiting for cache lock: ${lockPath}`);
       }
       try {
-        const info = await stat(lockPath);
-        if (Date.now() - info.mtimeMs >= staleMs) {
+        const [info, raw] = await Promise.all([stat(lockPath), readFile(lockPath, "utf8")]);
+        const ownerPid = parseLockOwnerPid(raw);
+        // Never steal a lock owned by a live process; only reclaim dead-PID
+        // locks (or unreadable/legacy lockfiles older than staleMs).
+        const deadOwner = ownerPid !== undefined && !isProcessAlive(ownerPid);
+        const staleCorrupt = ownerPid === undefined && Date.now() - info.mtimeMs >= staleMs;
+        if (deadOwner || staleCorrupt) {
           await rm(lockPath, { force: true });
         }
       } catch {
-        // Lock disappeared or could not be removed; fall through to bounded retry.
+        // Lock disappeared or could not be inspected; fall through to bounded retry.
       }
       if (Date.now() >= deadline) {
         throw new Error(`Timed out waiting for cache lock: ${lockPath}`);
@@ -57,9 +81,21 @@ async function acquireFileLock(lockPath: string, token: string, options: CacheLo
   }
 }
 
-async function releaseFileLock(lockPath: string, token: string): Promise<void> {
+async function verifyFileLockOwnership(lockPath: string, payload: string): Promise<void> {
+  let current: string;
   try {
-    if (await readFile(lockPath, "utf8") === token) {
+    current = await readFile(lockPath, "utf8");
+  } catch {
+    throw new Error(`Lost cache lock ownership: ${lockPath}`);
+  }
+  if (current !== payload) {
+    throw new Error(`Lost cache lock ownership: ${lockPath}`);
+  }
+}
+
+async function releaseFileLock(lockPath: string, payload: string): Promise<void> {
+  try {
+    if (await readFile(lockPath, "utf8") === payload) {
       await rm(lockPath, { force: true });
     }
   } catch {
@@ -70,10 +106,11 @@ async function releaseFileLock(lockPath: string, token: string): Promise<void> {
 /**
  * Serialize read-modify-write cache updates per cache path across both
  * concurrent callers in this process and separate Pi sessions sharing the file.
+ * Passes an `assertLockHeld` fence that throws if ownership was lost externally.
  */
 export async function withCacheLock<T>(
   path: string,
-  fn: () => Promise<T>,
+  fn: (assertLockHeld: () => Promise<void>) => Promise<T>,
   options?: CacheLockOptions,
 ): Promise<T> {
   const previous = inProcessCacheLocks.get(path) ?? Promise.resolve();
@@ -86,14 +123,17 @@ export async function withCacheLock<T>(
   await previous.catch(() => undefined);
 
   const lockPath = `${path}.lock`;
-  const token = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const payload = JSON.stringify({
+    pid: process.pid,
+    token: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  });
   let acquired = false;
   try {
-    await acquireFileLock(lockPath, token, options);
+    await acquireFileLock(lockPath, payload, options);
     acquired = true;
-    return await fn();
+    return await fn(() => verifyFileLockOwnership(lockPath, payload));
   } finally {
-    if (acquired) await releaseFileLock(lockPath, token);
+    if (acquired) await releaseFileLock(lockPath, payload);
     releaseInProcess();
     if (inProcessCacheLocks.get(path) === tail) {
       inProcessCacheLocks.delete(path);

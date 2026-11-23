@@ -148,3 +148,21 @@ test("syncActiveStatus updates the TUI badge when background discovery refreshes
   controller.syncActiveStatus("cpa");
   assert.deepEqual(sol.statuses.at(-1), { key: SERVICE_TIER_STATUS_KEY, value: "[warning:fast]" });
 });
+
+test("effectiveTierForRequest applies only to the active conversation session id", () => {
+  const controller = new ServiceTierController(() => sampleModels);
+  const solModel = { id: "gpt-6.2-sol", provider: "cpa", api: "openai-responses" };
+  const ctx = {
+    ...mockCtx(solModel).ctx,
+    sessionManager: { getSessionId: () => "main-session-1" },
+  } as any;
+  controller.attach(ctx, "cpa");
+  controller.setTier("priority");
+
+  assert.equal(controller.effectiveTierForRequest(solModel, "cpa", "main-session-1"), "priority");
+  assert.equal(controller.effectiveTierForRequest(solModel, "cpa", "guardian-reviewer-session"), undefined);
+  assert.equal(controller.effectiveTierForRequest(solModel, "cpa", undefined), undefined);
+
+  controller.detach();
+  assert.equal(controller.effectiveTierForRequest(solModel, "cpa", "main-session-1"), undefined);
+});

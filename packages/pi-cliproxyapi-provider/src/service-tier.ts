@@ -36,6 +36,7 @@ export class ServiceTierController {
   private tier: ServiceTier | undefined;
   private activeCtx: ExtensionContext | undefined;
   private activeProviderName: string | undefined;
+  private activeSessionId: string | undefined;
   private readonly getCpaModels: () => readonly CpaModel[] | undefined;
 
   constructor(getCpaModels: () => readonly CpaModel[] | undefined) {
@@ -45,11 +46,16 @@ export class ServiceTierController {
   attach(ctx: ExtensionContext, providerName: string): void {
     this.activeCtx = ctx;
     this.activeProviderName = providerName;
+    const sessionId = ctx.sessionManager?.getSessionId?.();
+    if (typeof sessionId === "string" && sessionId.length > 0) {
+      this.activeSessionId = sessionId;
+    }
   }
 
   detach(): void {
     this.activeCtx = undefined;
     this.activeProviderName = undefined;
+    this.activeSessionId = undefined;
   }
 
   getTier(): ServiceTier | undefined {
@@ -80,6 +86,15 @@ export class ServiceTierController {
   ): ServiceTier | undefined {
     if (!this.tier || !isCpaResponsesModel(model, providerName)) return undefined;
     return this.supportedTiersFor(model.id).includes(this.tier) ? this.tier : undefined;
+  }
+
+  effectiveTierForRequest(
+    model: ServiceTierModelRef | null | undefined,
+    providerName: string,
+    requestSessionId: string | undefined,
+  ): ServiceTier | undefined {
+    if (!this.activeSessionId || requestSessionId !== this.activeSessionId) return undefined;
+    return this.effectiveTierFor(model, providerName);
   }
 
   syncStatus(
@@ -122,6 +137,7 @@ export function registerServiceTierCommands(
           return;
         }
 
+        controller.attach(ctx, providerName);
         const next = controller.toggle(selected);
         controller.syncStatus(ctx, providerName);
 

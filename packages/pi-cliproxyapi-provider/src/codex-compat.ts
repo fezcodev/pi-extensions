@@ -81,13 +81,19 @@ function hasFullResponsesOptions(options: unknown): boolean {
  */
 export function createCpaResponsesStreamSimple(
   providerName: string,
-  resolveServiceTier?: (model: ServiceTierModelRef | null | undefined) => ServiceTier | undefined,
+  resolveServiceTier?: (
+    model: ServiceTierModelRef | null | undefined,
+    sessionId: string | undefined,
+  ) => ServiceTier | undefined,
   responsesApi: Pick<ProviderStreams, "stream" | "streamSimple"> = openAIResponsesApi(),
 ): NonNullable<ProviderConfig["streamSimple"]> {
   return (model, context, options) => {
     const baseOnPayload = options?.onPayload;
     const explicitServiceTier = isRecord(options) && options.serviceTier !== undefined;
-    const tierResolver = explicitServiceTier ? undefined : resolveServiceTier;
+    const requestSessionId = typeof options?.sessionId === "string" ? options.sessionId : undefined;
+    const tierResolver = explicitServiceTier || !resolveServiceTier
+      ? undefined
+      : (targetModel: ServiceTierModelRef | null | undefined) => resolveServiceTier(targetModel, requestSessionId);
     const wrappedOptions = {
       ...options,
       onPayload: async (payload: unknown, payloadModel: typeof model) => {
