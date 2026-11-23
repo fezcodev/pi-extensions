@@ -1,6 +1,15 @@
 import { cpaModelsCachePath, discoveryHeaders, modelsDevCachePath } from "./discovery.ts";
-import { readCache, writeCache, type CacheEnvelope } from "./cache.ts";
-import { fetchCpaModels, fetchCpaModelSpecs, parseCpaModelsCache, withCpaModelSpecs, type CpaModel, type CpaModelSpec } from "./cpa.ts";
+import { readCache, withCacheLock, writeCache, type CacheEnvelope } from "./cache.ts";
+import {
+  DEFAULT_STALE_MODEL_TTL_MS,
+  fetchCpaModels,
+  fetchCpaModelSpecs,
+  mergeCpaModelsWithStaleRetention,
+  parseCpaModelsCache,
+  withCpaModelSpecs,
+  type CpaModel,
+  type CpaModelSpec,
+} from "./cpa.ts";
 import { builtinSeedCatalog } from "./builtin-seed.ts";
 import { fetchModelsDevCatalog, hasSourceProviderMetadata, parseModelsDevCatalog } from "./models-dev.ts";
 import { loadPiModelProfiles, NO_PI_PROFILES, type PiModelProfiles } from "./pi-profiles.ts";
@@ -49,6 +58,8 @@ export interface SourceRefreshResult {
   error?: unknown;
   /** CPA's model-spec catalog failed; the model list still updated and kept the previous specs. */
   specError?: unknown;
+  /** Missing models retained from the previous snapshot during a background refresh. */
+  retainedStaleCount?: number;
 }
 
 export interface CatalogRefreshResult {
@@ -76,6 +87,8 @@ export interface ProviderCatalogOptions {
   metadataBackgroundTimeoutMs?: number;
   /** Age after which a routine refresh re-fetches models.dev. Defaults to {@link METADATA_STALE_AFTER_MS}. */
   metadataStaleAfterMs?: number;
+  /** How long a model missing from background discovery stays retained. Defaults to 7 days. */
+  staleModelTtlMs?: number;
   writeSnapshot?: typeof writeCache;
   now?: () => number;
   /** Source of pi's native model profiles. Defaults to the running pi's built-in catalog. */
@@ -93,8 +106,15 @@ function canonicalJson(value: unknown): string {
   return JSON.stringify(value);
 }
 
+function normalizeCpaModelsForComparison(models: readonly CpaModel[]): unknown[] {
+  return models.map(({ lastSeenAt: _lastSeenAt, staleSince, ...rest }) => ({
+    ...rest,
+    ...(staleSince !== undefined ? { stale: true } : {}),
+  }));
+}
+
 function sameCpaModels(left: CpaModel[], right: CpaModel[]): boolean {
-  return canonicalJson(left) === canonicalJson(right);
+  return canonicalJson(normalizeCpaModelsForComparison(left)) === canonicalJson(normalizeCpaModelsForComparison(right));
 }
 
 /** The specs a snapshot already holds, so a failed spec fetch keeps last-known-good values. */
@@ -228,6 +248,7 @@ export class ProviderCatalog {
 
     if (models.attempted) {
       try {
+        const discoveryStartedAt = (this.options.now ?? Date.now)();
         const apiKey = await (getDiscoveryApiKey ?? this.options.getApiKey)();
         const headers = discoveryHeaders(this.options.config, apiKey);
         // The spec catalog is ~0.5-2.5 MB against the list's ~10 kB, so it gets
@@ -246,19 +267,55 @@ export class ProviderCatalog {
           mode === "background" ? this.options.backgroundTimeoutMs ?? 2_000 : this.options.manualTimeoutMs ?? 10_000,
           signal,
         );
-        if (mode === "background" && current.cpaModels.length > 0 && listed.length === 0) {
-          throw new Error("CPA automatic discovery returned no models; retained the last successful snapshot");
-        }
         const specResult = await specsRequest;
         if (signal?.aborted) throw signal.reason ?? new Error("Refresh aborted");
-        const fresh = withCpaModelSpecs(listed, "specs" in specResult ? specResult.specs : previousSpecs(current.cpaModels));
         if ("error" in specResult) models.specError = specResult.error;
-        const freshUpdatedAt = Date.now();
-        const changed = !sameCpaModels(current.cpaModels, fresh);
-        await (this.options.writeSnapshot ?? writeCache)(cpaModelsCachePath(this.options.config), fresh, freshUpdatedAt);
-        cpaModels = fresh;
-        cpaUpdatedAt = freshUpdatedAt;
-        models.changed = changed;
+        const cachePath = cpaModelsCachePath(this.options.config);
+        const committed = await withCacheLock(cachePath, async (assertLockHeld) => {
+          const onDisk = await readCache(cachePath, parseCpaModelsCache);
+          if (mode === "background" && onDisk && onDisk.fetchedAt > discoveryStartedAt) {
+            // Another session committed a newer snapshot (e.g. manual refresh)
+            // after this background discovery began; adopt it instead of
+            // overwriting with older discovery results.
+            const retainedStaleCount = onDisk.data.filter((model) => model.staleSince !== undefined).length;
+            return {
+              nextModels: onDisk.data,
+              freshUpdatedAt: onDisk.fetchedAt,
+              changed: !sameCpaModels(current.cpaModels, onDisk.data),
+              retainedStaleCount,
+            };
+          }
+          const baselineModels = onDisk?.data ?? current.cpaModels;
+          const baselineUpdatedAt = onDisk?.fetchedAt ?? current.cpaUpdatedAt;
+          const freshUpdatedAt = (this.options.now ?? Date.now)();
+          const withSpecs = withCpaModelSpecs(
+            listed,
+            "specs" in specResult ? specResult.specs : previousSpecs(baselineModels),
+          );
+          let nextModels: CpaModel[];
+          let retainedStaleCount = 0;
+          if (mode === "background") {
+            const merged = mergeCpaModelsWithStaleRetention(
+              baselineModels,
+              withSpecs,
+              freshUpdatedAt,
+              this.options.staleModelTtlMs ?? DEFAULT_STALE_MODEL_TTL_MS,
+              baselineUpdatedAt,
+            );
+            nextModels = merged.models;
+            retainedStaleCount = merged.retainedStaleCount;
+          } else {
+            nextModels = withSpecs.map(({ staleSince: _cleared, ...model }) => ({ ...model, lastSeenAt: freshUpdatedAt }));
+          }
+          const changed = !sameCpaModels(current.cpaModels, nextModels);
+          await assertLockHeld();
+          await (this.options.writeSnapshot ?? writeCache)(cachePath, nextModels, freshUpdatedAt);
+          return { nextModels, freshUpdatedAt, changed, retainedStaleCount };
+        });
+        cpaModels = committed.nextModels;
+        cpaUpdatedAt = committed.freshUpdatedAt;
+        if (committed.retainedStaleCount > 0) models.retainedStaleCount = committed.retainedStaleCount;
+        models.changed = committed.changed;
         models.updated = true;
       } catch (error) {
         if (signal?.aborted) throw signal.reason ?? error;

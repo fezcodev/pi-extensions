@@ -8,6 +8,7 @@ import {
   saveModelOverride,
 } from "./config.ts";
 import type { ProviderCatalog } from "./catalog.ts";
+import type { CpaModel } from "./cpa.ts";
 import { normalizeProviderModels } from "./registration.ts";
 import { saveProviderSettings, type ProviderSettings } from "./settings.ts";
 import type {
@@ -81,14 +82,17 @@ function thinkingLevels(model: ProviderModelConfigLike): string {
   return getSupportedThinkingLevels(model as unknown as Model<Api>).join(", ");
 }
 
-function details(model: ProviderModelConfigLike): string[] {
+function details(model: ProviderModelConfigLike, cpaModel?: CpaModel): string[] {
+  const tiers = cpaModel?.spec?.serviceTiers;
   return [
     `Name: ${model.name}`,
     `API: ${model.api ?? "openai-completions (provider default)"}`,
     `Input: ${model.input.join(", ")}`,
     `Cost: in ${model.cost.input}, out ${model.cost.output}, cache read ${model.cost.cacheRead}, cache write ${model.cost.cacheWrite}`,
     `Thinking levels: ${thinkingLevels(model)}${model.thinkingLevelMap ? "" : " (pi default)"}`,
+    `Service tiers: ${tiers && tiers.length > 0 ? tiers.join(", ") : "none"}`,
     `Other compat: ${formattedOtherCompat(model)}`,
+    ...(cpaModel?.staleSince !== undefined ? ["Status: retained from cache (stale)"] : []),
   ];
 }
 
@@ -155,8 +159,8 @@ function providerSettingsItems(
     },
     {
       id: "perTurnEffort",
-      label: "Per-turn Claude effort",
-      description: "Switch Claude effort per turn on models pi supports it for, so the prompt cache survives. Needs CLIProxyAPI v8.0.3+; disable for older proxies.",
+      label: "Per-turn effort",
+      description: "Preserve prompt cache when switching effort mid-session (Claude v8.0.3+, Codex GPT-6).",
       currentValue: settings.perTurnEffort ? "enabled" : "disabled",
       values: ["enabled", "disabled"],
     },
@@ -327,6 +331,7 @@ export async function openModelInspector(
 
   const model = models.find((candidate) => candidate.id === selectedId);
   if (!model) return;
+  const cpaModel = snapshot.cpaModels.find((candidate) => candidate.id === selectedId);
   const layers = loadModelOverrideLayers(ctx.cwd);
   const globalOverride = layers.global[model.id] ?? {};
   const original: ProviderModelOverrideLayer = layers.project[model.id] ?? {};
@@ -341,7 +346,7 @@ export async function openModelInspector(
     container.addChild(new DynamicBorder((text) => theme.fg("border", text)));
     container.addChild(new Text(theme.fg("accent", theme.bold(model.id)), 1, 0));
     container.addChild(new Text(theme.fg("accent", `Strict tool schema: ${strictModeLabel(model)}`), 1, 0));
-    for (const line of details(model)) container.addChild(new Text(theme.fg("muted", line), 1, 0));
+    for (const line of details(model, cpaModel)) container.addChild(new Text(theme.fg("muted", line), 1, 0));
 
     const onChange = (id: string, value: string) => {
       if (id === "reasoning") {

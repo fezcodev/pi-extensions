@@ -1,5 +1,11 @@
 # @hank-warren/pi-statusline
 
+## 0.13.1
+
+### Patch Changes
+
+- Render `⚡` (fast) or `⚡⚡⚡` (ultrafast) beside the model name when `cpa-service-tier` is active.
+
 ## 0.13.0
 
 ### Minor Changes

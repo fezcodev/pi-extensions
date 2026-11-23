@@ -3,6 +3,7 @@ import { DEFAULT_CONFIG, loadConfig, globalConfigPath, readConfigFile, writeConf
 import type { ProviderCatalog, CatalogSnapshot, RefreshTarget, SourceRefreshResult } from "./catalog.ts";
 import type { ProviderRuntime } from "./runtime.ts";
 import { openModelInspector, openProviderConfig } from "./model-ui.ts";
+import type { ServiceTierController } from "./service-tier.ts";
 import { loadProviderSettings } from "./settings.ts";
 
 function errorText(error: unknown): string {
@@ -111,20 +112,28 @@ export async function runConfig(ctx: ExtensionCommandContext): Promise<void> {
   await ctx.reload();
 }
 
-function statusText(config: ReturnType<typeof loadConfig>, snapshot: CatalogSnapshot, metadataStale = false): string {
+function statusText(
+  config: ReturnType<typeof loadConfig>,
+  snapshot: CatalogSnapshot,
+  metadataStale = false,
+  serviceTier?: ServiceTierController,
+): string {
+  const staleSuffix = snapshot.built.stats.stale > 0 ? `, ${snapshot.built.stats.stale} stale` : "";
+  const activeTier = serviceTier?.getTier();
   return [
     `CLIProxyAPI provider: ${config.providerName}`,
     `Base URL: ${config.baseUrl}`,
     `Auth required: ${config.authRequired ? "yes" : "no"}`,
-    `Models: ${snapshot.built.stats.total} (${snapshot.built.stats.enriched} enriched, ${snapshot.built.stats.unmatched} unmatched, ${snapshot.built.stats.cpaSpecs} with CPA limits)`,
+    `Models: ${snapshot.built.stats.total} (${snapshot.built.stats.enriched} enriched, ${snapshot.built.stats.unmatched} unmatched, ${snapshot.built.stats.cpaSpecs} with CPA limits${staleSuffix})`,
     `Reasoning models: ${capabilityCount(snapshot, "reasoning")}`,
     `Image-capable models: ${capabilityCount(snapshot, "image")}`,
     `CPA snapshot: ${age(snapshot.cpaUpdatedAt)}`,
     metadataStatusLine(snapshot, metadataStale),
     `GPT-5.6 context window: ${snapshot.gpt56ContextWindow === "full" ? "full (CPA max_context_window, else models.dev)" : "canonical (CPA context_window, else 272000)"}`,
-    `Per-turn Claude effort: ${snapshot.perTurnEffort ? "enabled (needs CLIProxyAPI v8.0.3+)" : "disabled"}`,
+    `Per-turn effort: ${snapshot.perTurnEffort ? "enabled (Claude v8.0.3+, Codex GPT-6)" : "disabled"}`,
     `Claude mid-conversation updates: ${snapshot.midConversationUpdates ? "enabled (needs CLIProxyAPI v8.0.4+)" : "disabled"}`,
     `Claude message threads: ${snapshot.messageThreads ? "enabled (needs CLIProxyAPI v8.0.63+)" : "disabled"}`,
+    `Session speed tier: ${activeTier ?? "off"} (/fast, /ultrafast)`,
   ].join("\n");
 }
 
@@ -132,7 +141,8 @@ function refreshPart(label: string, result: SourceRefreshResult): string {
   if (!result.attempted) return `${label}: not requested`;
   if (result.error) return `${label}: failed (${errorText(result.error)}); retained previous snapshot`;
   const specs = result.specError ? `; CPA model specs failed (${errorText(result.specError)}), kept previous limits` : "";
-  return `${label}: ${result.changed ? "updated" : "unchanged"}${specs}`;
+  const stale = result.retainedStaleCount ? `; ${result.retainedStaleCount} stale retained` : "";
+  return `${label}: ${result.changed ? "updated" : "unchanged"}${specs}${stale}`;
 }
 
 function parseRefreshTarget(value: string | undefined): RefreshTarget | undefined {
@@ -153,6 +163,7 @@ const CLIPROXYAPI_HELP = [
   "  /cliproxyapi config            Configure model behavior and display",
   "  /cliproxyapi config connection Configure provider endpoint and auth",
   "  /cliproxyapi help              Show this help",
+  "  /fast, /ultrafast              Toggle Codex service_tier for this session",
 ].join("\n");
 
 export function cliproxyapiArgumentCompletions(prefix: string): Array<{ value: string; label: string }> {
@@ -161,7 +172,12 @@ export function cliproxyapiArgumentCompletions(prefix: string): Array<{ value: s
     .map((value) => ({ value, label: value }));
 }
 
-export function registerCliproxyapiCommand(pi: ExtensionAPI, runtime?: ProviderRuntime, catalog?: ProviderCatalog): void {
+export function registerCliproxyapiCommand(
+  pi: ExtensionAPI,
+  runtime?: ProviderRuntime,
+  catalog?: ProviderCatalog,
+  serviceTier?: ServiceTierController,
+): void {
   pi.registerCommand("cliproxyapi", {
     description: "Configure, refresh, and inspect the CLIProxyAPI provider.",
     getArgumentCompletions(prefix) {
@@ -195,7 +211,7 @@ export function registerCliproxyapiCommand(pi: ExtensionAPI, runtime?: ProviderR
       const config = loadConfig(ctx.cwd);
       if (subcommand === "status") {
         const snapshot = catalog.current() ?? await catalog.load();
-        ctx.ui.notify(statusText(config, snapshot, catalog.metadataIsStale(snapshot)), "info");
+        ctx.ui.notify(statusText(config, snapshot, catalog.metadataIsStale(snapshot), serviceTier), "info");
         return;
       }
       if (subcommand === "refresh") {
@@ -208,6 +224,7 @@ export function registerCliproxyapiCommand(pi: ExtensionAPI, runtime?: ProviderR
           ? undefined
           : () => ctx.modelRegistry.getApiKeyForProvider(config.providerName);
         const result = await runtime.refresh(target, "manual", getDiscoveryApiKey);
+        serviceTier?.syncStatus(ctx, config.providerName);
         const level = result.models.error || result.metadata.error ? "warning" : "info";
         ctx.ui.notify([
           "CLIProxyAPI provider refresh complete.",

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { formatTokenCount, renderStatusline, type StatuslineData } from "../index.ts";
+import { formatTokenCount, renderStatusline, resolveServiceTierStatus, type StatuslineData } from "../index.ts";
 import { type BooleanSettingKey, defaultSettings } from "../settings.ts";
 import { STATUSLINE_THEMES, THEME_NAMES } from "../themes.ts";
 
@@ -565,4 +565,31 @@ test("worktree repo names honour configured aliases", () => {
 		stripAnsi(renderStatusline(GATED_DATA, 160, { ...settings, repoAliases: { infrastructure: "infra" } })[1]),
 		"⑂ infra:fix/alerts #9",
 	);
+});
+
+test("resolveServiceTierStatus reads only cpa-service-tier and strips ANSI", () => {
+	assert.equal(resolveServiceTierStatus(new Map()), undefined);
+	assert.equal(resolveServiceTierStatus(new Map([["other", "fast"]])), undefined);
+	assert.equal(resolveServiceTierStatus(new Map([["cpa-service-tier", "\x1b[33mfast\x1b[39m"]])), "fast");
+	assert.equal(resolveServiceTierStatus(new Map([["cpa-service-tier", "\x1b[33multrafast\x1b[39m"]])), "ultrafast");
+	assert.equal(resolveServiceTierStatus(new Map([["cpa-service-tier", "priority"]])), "fast");
+	assert.equal(resolveServiceTierStatus(new Map([["cpa-service-tier", "unknown"]])), undefined);
+});
+
+test("renderStatusline shows ⚡ for fast and ⚡⚡⚡ for ultrafast beside the model name", () => {
+	const settings = defaultSettings("/home/hank");
+	const palette = STATUSLINE_THEMES[settings.theme];
+	const fastLine = renderStatusline({ ...GATED_DATA, serviceTier: "fast" }, 160, settings)[0];
+	const ultraLine = renderStatusline({ ...GATED_DATA, serviceTier: "ultrafast" }, 160, settings)[0];
+
+	assert.ok(stripAnsi(fastLine).startsWith("gpt-5.6-sol ⚡ | "));
+	assert.ok(fastLine.includes(`${palette.caution}⚡\x1b[0m`));
+	assert.ok(stripAnsi(ultraLine).startsWith("gpt-5.6-sol ⚡⚡⚡ | "));
+	assert.ok(ultraLine.includes(`${palette.caution}⚡⚡⚡\x1b[0m`));
+
+	const hiddenModel = renderStatusline({ ...GATED_DATA, serviceTier: "ultrafast" }, 160, {
+		...settings,
+		showModel: false,
+	})[0];
+	assert.doesNotMatch(stripAnsi(hiddenModel), /⚡/);
 });

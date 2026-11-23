@@ -1,5 +1,5 @@
 import type { RefreshModelsContext } from "@earendil-works/pi-ai";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ProviderConfig } from "@earendil-works/pi-coding-agent";
 import { getDiscoveryApiKey } from "./auth.ts";
 import { ProviderCatalog, type CatalogRefreshResult, type CatalogSnapshot, type RefreshTarget } from "./catalog.ts";
 import { buildUnavailableProviderModels } from "./provider.ts";
@@ -10,6 +10,8 @@ export interface ProviderRuntimeOptions {
   pi: ExtensionAPI;
   config: CpaProviderConfig;
   catalog: ProviderCatalog;
+  streamSimple?: ProviderConfig["streamSimple"];
+  onCatalogUpdated?: () => void;
 }
 
 export class ProviderRuntime {
@@ -32,7 +34,10 @@ export class ProviderRuntime {
     getDiscoveryApiKey?: () => Promise<string | undefined>,
   ): Promise<CatalogRefreshResult> {
     const result = await this.options.catalog.refresh(target, mode, getDiscoveryApiKey);
-    if (result.models.updated || result.metadata.updated) this.register(result.snapshot, false);
+    if (result.models.updated || result.metadata.updated) {
+      this.register(result.snapshot, mode === "manual");
+      this.options.onCatalogUpdated?.();
+    }
     return result;
   }
 
@@ -58,21 +63,27 @@ export class ProviderRuntime {
     // only once it has gone stale, so a newly listed model stops rendering
     // with fallback metadata without anyone running a manual refresh.
     const result = await this.options.catalog.refresh("models-if-stale", mode, keyFn, context.signal);
-    // Pi publishes refreshModels' return value synchronously. Registering here as
-    // well would create a second, competing catalog publication.
-    return normalizeProviderModels(
-      result.snapshot.built.models.length > 0
-        ? result.snapshot.built.models
-        : buildUnavailableProviderModels(),
-      this.options.config.baseUrl,
-    );
+    const models = result.snapshot.built.models.length > 0
+      ? result.snapshot.built.models
+      : buildUnavailableProviderModels();
+    // Pi publishes refreshModels' return value synchronously. Record its
+    // fingerprint so a later manual refresh returning to the startup catalog
+    // still detects the diff against what Pi currently holds.
+    this.registeredFingerprint = JSON.stringify(models);
+    this.options.onCatalogUpdated?.();
+    return normalizeProviderModels(models, this.options.config.baseUrl);
   }
 
   private register(snapshot: CatalogSnapshot, force: boolean): void {
     const models = snapshot.built.models.length > 0 ? snapshot.built.models : buildUnavailableProviderModels();
     const fingerprint = JSON.stringify(models);
     if (!force && fingerprint === this.registeredFingerprint) return;
-    const registration = buildProviderRegistration(this.options.config, models, (ctx) => this.refreshModels(ctx));
+    const registration = buildProviderRegistration(
+      this.options.config,
+      models,
+      (ctx) => this.refreshModels(ctx),
+      this.options.streamSimple,
+    );
     this.options.pi.registerProvider(registration.providerName, registration.config);
     this.registeredFingerprint = fingerprint;
   }

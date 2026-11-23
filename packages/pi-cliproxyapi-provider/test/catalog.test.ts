@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
 import { ProviderCatalog } from "../src/catalog.ts";
 import { cpaModelsCachePath, modelsDevCachePath } from "../src/discovery.ts";
-import { writeCache } from "../src/cache.ts";
+import { withCacheLock, writeCache } from "../src/cache.ts";
 import type { CpaProviderConfig } from "../src/types.ts";
 
 const config: CpaProviderConfig = {
@@ -146,9 +146,12 @@ test("background refresh updates CPA models while retaining metadata", async () 
       const result = await instance.refresh("models", "background");
       assert.equal(result.models.updated, true);
       assert.equal(result.models.changed, true);
-      assert.deepEqual(result.snapshot.cpaModels.map((model) => model.id), ["gpt-5.6-luna"]);
+      assert.equal(result.models.retainedStaleCount, 1);
+      assert.deepEqual(result.snapshot.cpaModels.map((model) => model.id), ["cached", "gpt-5.6-luna"]);
+      assert.equal(result.snapshot.built.stats.stale, 1);
       // Metadata is still the built-in seed, which is what marks this model reasoning.
-      assert.equal(result.snapshot.built.models[0].reasoning, true);
+      const luna = result.snapshot.built.models.find((model) => model.id === "gpt-5.6-luna");
+      assert.equal(luna?.reasoning, true);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -401,12 +404,13 @@ test("a failed stale-metadata fetch keeps the previous metadata and still publis
     try {
       const result = await instance.refresh("models-if-stale", "background");
       assert.equal(result.models.updated, true);
-      assert.deepEqual(result.snapshot.cpaModels.map((model) => model.id), ["gpt-5.6-luna"]);
+      assert.deepEqual(result.snapshot.cpaModels.map((model) => model.id), ["cached", "gpt-5.6-luna"]);
       assert.equal(result.metadata.attempted, true);
       assert.equal(result.metadata.updated, false);
       assert.ok(result.metadata.error);
       assert.equal(result.snapshot.metadataSource, "builtin");
-      assert.equal(result.snapshot.built.models[0].name, "GPT-5.6 Luna");
+      const luna = result.snapshot.built.models.find((model) => model.id === "gpt-5.6-luna");
+      assert.equal(luna?.name, "GPT-5.6 Luna");
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -459,5 +463,287 @@ test("catalog builds models with the injected pi profiles", async () => {
     assert.equal(flipped.midConversationUpdates, false);
     assert.equal(flipped.messageThreads, true);
     assert.deepEqual(flipped.built.models.find((model) => model.id === "claude-opus-5-5")?.compat, { supportsMessageThreads: true });
+  });
+});
+
+test("background refresh retains missing models until TTL expires and manual refresh clears them", async () => {
+  await withTempHome(async () => {
+    let now = 1_000_000;
+    const ttl = 10_000;
+    await writeCache(cpaModelsCachePath(config), [
+      { id: "transient-model", owned_by: "openai", spec: { maxTokens: 64000, serviceTiers: ["priority"] } },
+      { id: "steady-model", owned_by: "openai" },
+    ], now);
+
+    const instance = new ProviderCatalog({
+      config: { ...config, modelsDevEnabled: false },
+      gpt56ContextWindow: "canonical",
+      getApiKey: async () => undefined,
+      backgroundTimeoutMs: 50,
+      staleModelTtlMs: ttl,
+      now: () => now,
+    });
+    await instance.load();
+
+    let remoteIds = ["steady-model"];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      if (String(url).includes("client_version")) {
+        return new Response(JSON.stringify({ models: [] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({
+        data: remoteIds.map((id) => ({ id, owned_by: "openai" })),
+      }), { status: 200 });
+    }) as typeof fetch;
+
+    try {
+      // Blip at t+1000: transient-model disappears, kept as stale with its spec intact.
+      now += 1_000;
+      const blip = await instance.refresh("models", "background");
+      assert.equal(blip.models.changed, true);
+      assert.equal(blip.models.retainedStaleCount, 1);
+      assert.equal(blip.snapshot.built.stats.stale, 1);
+      const retained = blip.snapshot.cpaModels.find((m) => m.id === "transient-model");
+      assert.equal(retained?.staleSince, now);
+      assert.equal(retained?.spec?.maxTokens, 64000);
+
+      // Still missing at t+5000: unchanged normalized snapshot reports changed=false.
+      now += 4_000;
+      const stillMissing = await instance.refresh("models", "background");
+      assert.equal(stillMissing.models.changed, false);
+      assert.equal(stillMissing.models.retainedStaleCount, 1);
+
+      // Reappears at t+6000: staleSince clears.
+      now += 1_000;
+      remoteIds = ["steady-model", "transient-model"];
+      const recovered = await instance.refresh("models", "background");
+      assert.equal(recovered.models.changed, true);
+      assert.equal(recovered.models.retainedStaleCount, undefined);
+      assert.equal(recovered.snapshot.built.stats.stale, 0);
+      assert.equal(recovered.snapshot.cpaModels.find((m) => m.id === "transient-model")?.staleSince, undefined);
+
+      // Disappears again at t+7000, then expires past TTL at t+17000.
+      now += 1_000;
+      remoteIds = ["steady-model"];
+      await instance.refresh("models", "background");
+      now += ttl;
+      const expired = await instance.refresh("models", "background");
+      assert.deepEqual(expired.snapshot.cpaModels.map((m) => m.id), ["steady-model"]);
+      assert.equal(expired.snapshot.built.stats.stale, 0);
+
+      // Manual refresh immediately clears stale models without waiting for TTL.
+      remoteIds = ["steady-model", "transient-model"];
+      await instance.refresh("models", "background");
+      now += 1_000;
+      remoteIds = ["steady-model"];
+      await instance.refresh("models", "background");
+      assert.equal(instance.current()?.built.stats.stale, 1);
+      const manual = await instance.refresh("models", "manual");
+      assert.deepEqual(manual.snapshot.cpaModels.map((m) => m.id), ["steady-model"]);
+      assert.equal(manual.snapshot.built.stats.stale, 0);
+
+      // A valid empty HTTP 200 list also flows through bounded stale retention and expires after TTL.
+      remoteIds = [];
+      now += 1_000;
+      const emptyBlip = await instance.refresh("models", "background");
+      assert.equal(emptyBlip.models.error, undefined);
+      assert.equal(emptyBlip.models.updated, true);
+      assert.equal(emptyBlip.models.retainedStaleCount, 1);
+      assert.equal(emptyBlip.snapshot.built.stats.stale, 1);
+      now += ttl;
+      const emptyExpired = await instance.refresh("models", "background");
+      assert.deepEqual(emptyExpired.snapshot.cpaModels, []);
+      assert.equal(emptyExpired.snapshot.built.stats.stale, 0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("background refresh merges against latest on-disk cache so another session cannot resurrect a manually removed model", async () => {
+  await withTempHome(async () => {
+    let now = 2_000_000;
+    const ttl = 60_000;
+    await writeCache(cpaModelsCachePath(config), [
+      { id: "steady-model", owned_by: "openai", lastSeenAt: now },
+      { id: "removed-model", owned_by: "openai", lastSeenAt: now },
+    ], now);
+
+    const sessionA = new ProviderCatalog({
+      config,
+      gpt56ContextWindow: "canonical",
+      getApiKey: async () => undefined,
+      staleModelTtlMs: ttl,
+      now: () => now,
+    });
+    const sessionB = new ProviderCatalog({
+      config,
+      gpt56ContextWindow: "canonical",
+      getApiKey: async () => undefined,
+      staleModelTtlMs: ttl,
+      now: () => now,
+    });
+    await sessionA.load();
+    await sessionB.load();
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      if (String(url).includes("client_version")) {
+        return new Response(JSON.stringify({ models: [] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ data: [{ id: "steady-model", owned_by: "openai" }] }), { status: 200 });
+    }) as typeof fetch;
+
+    try {
+      now += 1_000;
+      // Session A manually clears removed-model from disk.
+      const manual = await sessionA.refresh("models", "manual");
+      assert.deepEqual(manual.snapshot.cpaModels.map((m) => m.id), ["steady-model"]);
+
+      // Session B still had removed-model in memory; its background refresh reads
+      // the latest disk cache and must not write removed-model back as stale.
+      now += 1_000;
+      const bg = await sessionB.refresh("models", "background");
+      assert.deepEqual(bg.snapshot.cpaModels.map((m) => m.id), ["steady-model"]);
+      assert.equal(bg.models.retainedStaleCount, undefined);
+      assert.equal(bg.models.changed, true);
+
+      // A brand-new Session C sees only steady-model on disk.
+      const sessionC = new ProviderCatalog({
+        config,
+        gpt56ContextWindow: "canonical",
+        getApiKey: async () => undefined,
+      });
+      const loadedC = await sessionC.load();
+      assert.deepEqual(loadedC.cpaModels.map((m) => m.id), ["steady-model"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("in-flight background discovery that predates a newer committed snapshot adopts the newer disk cache instead of overwriting", async () => {
+  await withTempHome(async () => {
+    let now = 3_000_000;
+    const ttl = 60_000;
+    await writeCache(cpaModelsCachePath(config), [
+      { id: "steady-model", owned_by: "openai", lastSeenAt: now },
+      { id: "removed-model", owned_by: "openai", lastSeenAt: now },
+    ], now);
+
+    const sessionA = new ProviderCatalog({
+      config,
+      gpt56ContextWindow: "canonical",
+      getApiKey: async () => undefined,
+      staleModelTtlMs: ttl,
+      now: () => now,
+    });
+    const sessionB = new ProviderCatalog({
+      config,
+      gpt56ContextWindow: "canonical",
+      getApiKey: async () => undefined,
+      staleModelTtlMs: ttl,
+      now: () => now,
+    });
+    await sessionA.load();
+    await sessionB.load();
+
+    let releaseSlowSpecs!: () => void;
+    let slowSpecsStarted!: () => void;
+    const slowSpecsReady = new Promise<void>((resolve) => { slowSpecsStarted = resolve; });
+    const slowSpecsGate = new Promise<void>((resolve) => { releaseSlowSpecs = resolve; });
+    let phase: "slow-bg" | "manual" = "slow-bg";
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const target = String(url);
+      if (phase === "slow-bg") {
+        if (target.includes("client_version")) {
+          slowSpecsStarted();
+          await slowSpecsGate;
+          return new Response(JSON.stringify({ models: [] }), { status: 200 });
+        }
+        // Background refresh saw removed-model before manual refresh cleared it.
+        return new Response(JSON.stringify({
+          data: [
+            { id: "steady-model", owned_by: "openai" },
+            { id: "removed-model", owned_by: "openai" },
+          ],
+        }), { status: 200 });
+      }
+      if (target.includes("client_version")) {
+        return new Response(JSON.stringify({ models: [] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ data: [{ id: "steady-model", owned_by: "openai" }] }), { status: 200 });
+    }) as typeof fetch;
+
+    try {
+      now += 1_000;
+      const slowBgPromise = sessionB.refresh("models", "background");
+      await slowSpecsReady;
+
+      // While sessionB is waiting on slow specs, sessionA manually removes removed-model at a later timestamp.
+      phase = "manual";
+      now += 500;
+      const manual = await sessionA.refresh("models", "manual");
+      assert.deepEqual(manual.snapshot.cpaModels.map((m) => m.id), ["steady-model"]);
+
+      // Now sessionB's slower background discovery finishes; it must adopt sessionA's newer commit.
+      now += 500;
+      releaseSlowSpecs();
+      const slowBg = await slowBgPromise;
+      assert.deepEqual(slowBg.snapshot.cpaModels.map((m) => m.id), ["steady-model"]);
+
+      const sessionC = new ProviderCatalog({
+        config,
+        gpt56ContextWindow: "canonical",
+        getApiKey: async () => undefined,
+      });
+      const loadedC = await sessionC.load();
+      assert.deepEqual(loadedC.cpaModels.map((m) => m.id), ["steady-model"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("withCacheLock refuses unlocked writes on timeout and releases its in-process gate after errors", async () => {
+  await withTempHome(async () => {
+    const cachePath = cpaModelsCachePath(config);
+    const lockPath = `${cachePath}.lock`;
+    await writeCache(cachePath, [{ id: "existing" }], 100);
+    await writeFile(lockPath, "foreign-owner", "utf8");
+
+    let ran = false;
+    await assert.rejects(
+      () => withCacheLock(cachePath, async () => { ran = true; }, { timeoutMs: 40, retryMs: 10, staleMs: 60_000 }),
+      /Timed out waiting for cache lock/,
+    );
+    assert.equal(ran, false);
+
+    // Once the foreign lock clears, the next caller must not hang on a wedged in-process gate.
+    await rm(lockPath, { force: true });
+    const result = await withCacheLock(cachePath, async () => "ok", { timeoutMs: 200, retryMs: 10 });
+    assert.equal(result, "ok");
+
+    // A lock owned by a live PID is never stolen even past staleMs.
+    await writeFile(lockPath, JSON.stringify({ pid: process.pid, token: "live-owner" }), "utf8");
+    await assert.rejects(
+      () => withCacheLock(cachePath, async () => "stolen", { timeoutMs: 40, retryMs: 10, staleMs: 0 }),
+      /Timed out waiting for cache lock/,
+    );
+    await rm(lockPath, { force: true });
+
+    // A dead PID lock is reclaimed cleanly.
+    await writeFile(lockPath, JSON.stringify({ pid: 999_999_999, token: "dead-owner" }), "utf8");
+    const reclaimed = await withCacheLock(cachePath, async (assertLockHeld) => {
+      await assertLockHeld();
+      // If ownership is lost externally before commit, the fence rejects.
+      await writeFile(lockPath, JSON.stringify({ pid: process.pid, token: "someone-else" }), "utf8");
+      await assert.rejects(() => assertLockHeld(), /Lost cache lock ownership/);
+      return "reclaimed";
+    }, { timeoutMs: 200, retryMs: 10, staleMs: 60_000 });
+    assert.equal(reclaimed, "reclaimed");
+    await rm(lockPath, { force: true });
   });
 });

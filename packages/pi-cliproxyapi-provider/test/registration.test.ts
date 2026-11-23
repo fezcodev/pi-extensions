@@ -194,3 +194,30 @@ test("forces Authorization header off when auth is disabled", () => {
   assert.equal(registration.config.apiKey, "cliproxyapi-no-auth");
   assert.equal(registration.config.authHeader, false);
 });
+
+test("scopes provider streamSimple to openai-responses while keeping other models explicit", () => {
+  const customStream = (() => {
+    throw new Error("not called");
+  }) as any;
+  const registration = buildProviderRegistration({
+    providerName: "cpa",
+    baseUrl: "http://localhost:8317/v1",
+    authRequired: false,
+    authHeader: false,
+    headers: {},
+    modelsDevEnabled: true,
+    metadataFallbackProvider: "openrouter",
+    modelAliases: {},
+    modelOverrides: {},
+  }, [
+    { ...claudeModel("gpt-6.2-sol"), api: "openai-responses" },
+    claudeModel("claude-opus-5-5"),
+    { ...claudeModel("deepseek-r1"), api: undefined },
+  ], undefined, customStream);
+
+  assert.equal(registration.config.api, "openai-responses");
+  assert.equal(registration.config.streamSimple, customStream);
+  assert.equal(registration.config.models?.[0]?.api, "openai-responses");
+  assert.equal(registration.config.models?.[1]?.api, "anthropic-messages");
+  assert.equal(registration.config.models?.[2]?.api, "openai-completions");
+});

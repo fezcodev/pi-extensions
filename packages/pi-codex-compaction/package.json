@@ -1,6 +1,6 @@
 {
   "name": "@hank-warren/pi-codex-compaction",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Native Codex compaction for Pi, directly or through CLIProxyAPI.",
   "type": "module",
   "keywords": [

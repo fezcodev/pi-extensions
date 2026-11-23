@@ -47,8 +47,27 @@ import {
 	SessionWorktreeTracker,
 } from "./worktrees.ts";
 
+export type ServiceTierIndicator = "fast" | "ultrafast";
+
+const SERVICE_TIER_STATUS_KEY = "cpa-service-tier";
+const ANSI_SGR_RE = /\x1b\[[0-9;]*m/g;
+
+/** Read the CPA service-tier extension status and map it to a model badge. */
+export function resolveServiceTierStatus(
+	statuses: ReadonlyMap<string, string>,
+): ServiceTierIndicator | undefined {
+	const raw = statuses.get(SERVICE_TIER_STATUS_KEY);
+	if (!raw) return undefined;
+	const normalized = raw.replace(ANSI_SGR_RE, "").trim().toLowerCase();
+	if (normalized === "ultrafast" || normalized === "⚡⚡⚡") return "ultrafast";
+	if (normalized === "fast" || normalized === "priority" || normalized === "⚡") return "fast";
+	return undefined;
+}
+
 export interface StatuslineData {
 	model: string;
+	/** Active CPA service tier for the model; renders as ⚡ or ⚡⚡⚡ beside the model name. */
+	serviceTier?: ServiceTierIndicator;
 	/** Thinking level of the active model; absent when the model cannot reason. */
 	thinkingLevel?: string;
 	/** Provider id of the active model; absent when there is no model. */
@@ -218,8 +237,14 @@ export function renderStatusline(
 	// they sit after the usage meters, which is where the built-in segments stop
 	// and anything the user added begins.
 	const customSegments = settings.showCustomItems ? (data.customValues ?? []).filter((value) => value.length > 0) : [];
+	const modelBadge =
+		data.serviceTier === "ultrafast"
+			? ` ${styled(palette.caution, "⚡⚡⚡")}`
+			: data.serviceTier === "fast"
+				? ` ${styled(palette.caution, "⚡")}`
+				: "";
 	const segments = [
-		settings.showModel ? styled(palette.model, data.model) : undefined,
+		settings.showModel ? `${styled(palette.model, data.model)}${modelBadge}` : undefined,
 		// A non-reasoning model has no level to show, so the segment goes with it.
 		// "off" on a reasoning model is a real state and reads as pi's own footer
 		// spells it, because a bare "off" between two ids means nothing.
@@ -619,6 +644,7 @@ export default function statuslineExtension(pi: ExtensionAPI): void {
 						renderStatusline(
 							{
 								model,
+								serviceTier: resolveServiceTierStatus(footerData.getExtensionStatuses()),
 								thinkingLevel,
 								provider: ctx.model?.provider,
 								cwd,

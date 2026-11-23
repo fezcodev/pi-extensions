@@ -209,14 +209,27 @@ export function registerCodexCompactionExtension(pi: ExtensionAPI, hostVersion =
 			const branch = ctx.sessionManager.getBranch() as SessionEntry[];
 			const checkpoint = findNativeCheckpoint(branch);
 			if (checkpoint.status === "none") return undefined;
-			const input = effectiveInputForBranch({ branch, model, tools: pi.getAllTools() });
+			const trailingUpdate = Array.isArray(event.payload.input)
+				&& isJsonObject(event.payload.input.at(-1))
+				&& event.payload.input.at(-1)?.type === "configuration_update"
+				? structuredClone(event.payload.input.at(-1) as ResponseItem)
+				: undefined;
+			const input = effectiveInputForBranch({
+				branch,
+				model,
+				tools: pi.getAllTools(),
+				preserveConfigurationUpdates: trailingUpdate !== undefined,
+			});
 			// Generic Responses carries system instructions in input, unlike direct
 			// Codex's top-level instructions. Preserve the finalized prompt (including
 			// earlier payload hooks), but replace the conversation and local marker.
 			const instructions = !isOpenAICodexModel(model) && Array.isArray(event.payload.input)
 				? event.payload.input.filter((item) => isJsonObject(item) && ["system", "developer"].includes(String(item.role)))
 				: [];
-			const payload: JsonObject = { ...event.payload, input: [...instructions, ...input] };
+			const payload: JsonObject = {
+				...event.payload,
+				input: [...instructions, ...input, ...(trailingUpdate ? [trailingUpdate] : [])],
+			};
 			delete payload.messages;
 			delete payload.previous_response_id;
 			return payload;
@@ -244,6 +257,9 @@ export function registerCodexCompactionExtension(pi: ExtensionAPI, hostVersion =
 				model,
 				tools: pi.getAllTools(),
 				excludeLastAssistantError: event.reason === "overflow" && event.willRetry,
+				preserveConfigurationUpdates: Boolean(
+					(model.compat as { supportsMidConvoEffort?: boolean } | undefined)?.supportsMidConvoEffort,
+				),
 			});
 			const cached = payloadShapeBySession.get(sessionId);
 			const native = await withCompactionStatus(ctx, () => createNativeCheckpoint({

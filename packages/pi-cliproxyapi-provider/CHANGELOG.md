@@ -1,5 +1,15 @@
 # @hank-warren/pi-cliproxyapi-provider
 
+## 0.7.0
+
+### Minor Changes
+
+- Add cache-preserving Codex GPT-6 mid-conversation effort, session-only Codex speed tiers (`/fast`, `/ultrafast`), and 7-day per-model stale retention across background discovery blips.
+
+  - **Codex GPT-6 mid-conversation effort:** parse `supports_reasoning_effort_updates` from CLIProxyAPI's `/v1/models?client_version=` catalog and publish `compat.supportsMidConvoEffort: true` on eligible pure-Codex GPT-6 models when `perTurnEffort` is enabled (excluding `devin/*` and models where CPA sets `false`). Pi's stock `openai-responses` driver pins top-level `reasoning.effort` and emits append-only `configuration_update` input items, keeping the prompt cache warm across mid-session thinking-level switches.
+  - **Session-only `/fast` and `/ultrafast`:** parse CPA's `service_tiers` (`priority`, `ultrafast`) and inject `service_tier` through a provider-scoped Responses `streamSimple` wrapper on eligible CPA Responses models when not already set. Resets on every new/resumed session, reports the active tier via `ctx.ui.setStatus` in TUI mode, and never touches Claude models or separate Console-billing aliases such as `claude-opus-5-5-fast`.
+  - **Per-model stale retention:** background refreshes retain individually missing models (with their specs) for 7 days so transient upstream blips do not prune valid models from `/model`; manual `/cliproxyapi refresh` replaces the snapshot cleanly.
+
 ## 0.6.1
 
 ### Patch Changes

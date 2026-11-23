@@ -29,7 +29,17 @@ const codexCatalog = {
       base_instructions: "large template prompt, ignored",
     },
     // A Codex template model: CPA's window is the template's, its ceiling separate.
-    { slug: "team/gpt-6-sol", context_window: 272000, max_context_window: 872000, max_tokens: 128000 },
+    {
+      slug: "team/gpt-6-sol",
+      context_window: 272000,
+      max_context_window: 872000,
+      max_tokens: 128000,
+      supports_reasoning_effort_updates: true,
+      service_tiers: [
+        { id: "priority", name: "Fast" },
+        { id: "ultrafast", name: "Ultrafast" },
+      ],
+    },
     // No max_tokens: CPA's registry knows nothing, every limit is template filler.
     { slug: "gpt-image-2", context_window: 272000, max_context_window: 272000, supported_reasoning_levels: [{ effort: "low" }] },
     { context_window: 1, max_tokens: 1 },
@@ -52,7 +62,42 @@ test("reads CPA's own limits and keeps no entry whose limits are template filler
     reasoningLevels: ["low", "medium", "max"],
     inputModalities: ["text", "image"],
   });
-  assert.deepEqual(specs.get("team/gpt-6-sol"), { contextWindow: 272000, maxContextWindow: 872000, maxTokens: 128000 });
+  assert.deepEqual(specs.get("team/gpt-6-sol"), {
+    contextWindow: 272000,
+    maxContextWindow: 872000,
+    maxTokens: 128000,
+    supportsReasoningEffortUpdates: true,
+    serviceTiers: ["priority", "ultrafast"],
+  });
+});
+
+test("preserves explicit false supports_reasoning_effort_updates and omits empty service_tiers", () => {
+  const specs = parseCpaModelSpecs({
+    models: [
+      {
+        slug: "devin/gpt-6-astra",
+        max_tokens: 64000,
+        supports_reasoning_effort_updates: false,
+        service_tiers: [],
+      },
+      {
+        slug: "gpt-6.1-sol",
+        max_tokens: 128000,
+        supports_reasoning_effort_updates: true,
+        service_tiers: ["PRIORITY", { id: "priority" }],
+      },
+    ],
+  });
+
+  assert.deepEqual(specs.get("devin/gpt-6-astra"), {
+    maxTokens: 64000,
+    supportsReasoningEffortUpdates: false,
+  });
+  assert.deepEqual(specs.get("gpt-6.1-sol"), {
+    maxTokens: 128000,
+    supportsReasoningEffortUpdates: true,
+    serviceTiers: ["priority"],
+  });
 });
 
 test("a server that ignores the query and returns the plain list yields no specs", () => {
@@ -74,13 +119,35 @@ test("attaches specs by id and replaces, never merges, a model's previous spec",
 test("the CPA snapshot round-trips specs and still loads one written before specs existed", () => {
   const parsed = parseCpaModelsCache([
     { id: "a", owned_by: "openai" },
-    { id: "b", owned_by: "anthropic", spec: { contextWindow: 1000000, maxTokens: 64000, reasoningLevels: ["low"], junk: 1 } },
-    { id: "c", spec: { contextWindow: -1, maxTokens: "big" } },
+    {
+      id: "b",
+      owned_by: "anthropic",
+      lastSeenAt: 1000,
+      staleSince: 2000,
+      spec: {
+        contextWindow: 1000000,
+        maxTokens: 64000,
+        reasoningLevels: ["low"],
+        supportsReasoningEffortUpdates: true,
+        serviceTiers: ["priority", "ultrafast"],
+        junk: 1,
+      },
+    },
+    { id: "c", lastSeenAt: -5, spec: { contextWindow: -1, maxTokens: "big" } },
   ]);
 
   assert.equal(parsed[0].spec, undefined);
-  assert.deepEqual(parsed[1].spec, { contextWindow: 1000000, maxTokens: 64000, reasoningLevels: ["low"] });
+  assert.equal(parsed[1].lastSeenAt, 1000);
+  assert.equal(parsed[1].staleSince, 2000);
+  assert.deepEqual(parsed[1].spec, {
+    contextWindow: 1000000,
+    maxTokens: 64000,
+    reasoningLevels: ["low"],
+    supportsReasoningEffortUpdates: true,
+    serviceTiers: ["priority", "ultrafast"],
+  });
   assert.equal(parsed[2].spec, undefined);
+  assert.equal(parsed[2].lastSeenAt, undefined);
 });
 
 test("aborts a stalled spec fetch on its own budget", async () => {

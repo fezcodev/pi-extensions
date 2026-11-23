@@ -34,9 +34,9 @@ export const PI_MODEL_DEFAULTS = {
   maxTokens: 16384,
 };
 
-/** Which of pi's native Anthropic transcript features are published for Claude models. */
+/** Which of pi's native mid-conversation wire features are published. */
 export interface ClaudeWireFeatures {
-  /** Per-turn effort (`supportsMidConvoEffort`); needs CLIProxyAPI v8.0.3 or later. */
+  /** Per-turn / mid-conversation effort (`supportsMidConvoEffort`); Claude needs CLIProxyAPI v8.0.3+, Codex GPT-6 uses `configuration_update`. */
   perTurnEffort: boolean;
   /** Mid-conversation system messages and tool changes; needs CLIProxyAPI v8.0.4 or later. */
   midConversationUpdates: boolean;
@@ -58,6 +58,8 @@ export interface BuildProviderModelsStats {
   unmatchedModelIds: string[];
   /** Models whose limits came from CLIProxyAPI's own registry. */
   cpaSpecs: number;
+  /** Models retained from an earlier snapshot after disappearing from background discovery. */
+  stale: number;
 }
 
 export interface BuildProviderModelsResult {
@@ -250,11 +252,26 @@ function isDevinRoute(id: string): boolean {
   return id.toLowerCase().startsWith("devin/");
 }
 
+function supportsCodexMidConvoEffort(wire: ModelWire, cpaModel: CpaModel, reasoning: boolean): boolean {
+  if (!wire.codexResponses || !reasoning) return false;
+  if (cpaModel.spec?.supportsReasoningEffortUpdates !== undefined) {
+    return cpaModel.spec.supportsReasoningEffortUpdates;
+  }
+  if (isDevinRoute(cpaModel.id)) return false;
+  if (cpaModel.owned_by !== undefined && cpaModel.owned_by !== "openai") return false;
+  return wire.profile?.supportsMidConvoEffort === true;
+}
+
 function compatFromWire(
   wire: ModelWire,
   cpaModel: CpaModel,
   features: ClaudeWireFeatures,
+  reasoning: boolean,
 ): ProviderModelConfigLike["compat"] | undefined {
+  if (wire.codexResponses) {
+    if (!features.perTurnEffort || !supportsCodexMidConvoEffort(wire, cpaModel, reasoning)) return undefined;
+    return { supportsMidConvoEffort: true } as ProviderModelConfigLike["compat"];
+  }
   if (wire.api !== "anthropic-messages" || !wire.profile) return undefined;
   if (cpaModel.owned_by !== undefined && cpaModel.owned_by !== "anthropic") return undefined;
   const profile = wire.profile;
@@ -288,7 +305,7 @@ function modelFromMetadata(
   const wire = resolveModelWire(capabilityContext, profiles);
   const spec = cpaModel.spec;
   const { reasoning, thinkingLevelMap } = thinkingForModel(wire, getModelCapabilityOverrides(capabilityContext), metadata, spec);
-  const compat = compatFromWire(wire, cpaModel, features);
+  const compat = compatFromWire(wire, cpaModel, features, reasoning);
 
   // CLIProxyAPI's registry wins on everything it publishes; the metadata
   // supplies cost and fills fields CPA leaves out.
@@ -322,9 +339,9 @@ function defaultModel(
 ): ProviderModelConfigLike {
   const modelContext = { availableModelId: cpaModel.id };
   const wire = resolveModelWire(modelContext, profiles);
-  const compat = compatFromWire(wire, cpaModel, features);
   const spec = cpaModel.spec;
   const { reasoning, thinkingLevelMap } = thinkingForModel(wire, getModelCapabilityOverrides(modelContext), undefined, spec);
+  const compat = compatFromWire(wire, cpaModel, features, reasoning);
 
   return {
     id: cpaModel.id,
@@ -409,6 +426,7 @@ export function buildProviderModels(
       matchMethods,
       unmatchedModelIds,
       cpaSpecs: cpaModels.filter((model) => model.spec?.contextWindow !== undefined || model.spec?.maxTokens !== undefined).length,
+      stale: cpaModels.filter((model) => model.staleSince !== undefined).length,
     },
   };
 }

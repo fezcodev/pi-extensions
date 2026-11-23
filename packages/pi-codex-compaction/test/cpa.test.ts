@@ -218,4 +218,130 @@ describe("CPA lifecycle", () => {
 		assert.equal(parseNativeCompactionDetails({ ...details, replacementHistory: [...details.replacementHistory, ...details.replacementHistory] }), undefined);
 		assert.equal(parseNativeCompactionDetails({ ...details, replacementHistory: [{ type: "compaction" }] }), undefined);
 	});
+
+	test("drops transient service_tier from cached compaction payload", async () => {
+		const first = userEntry("first", "hello");
+		const h = cpaHarness([first]);
+		let compactionBody: Record<string, unknown> | undefined;
+		globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+			compactionBody = JSON.parse(String(init?.body ?? "{}"));
+			return compactionSse();
+		}) as typeof fetch;
+
+		await h.handlers.get("before_provider_request")!(
+			{ payload: { model: cpaModel.id, service_tier: "priority", input: [] } },
+			h.context,
+		);
+		await h.handlers.get("session_before_compact")!(compactEvent([first]), h.context);
+		assert.equal(compactionBody?.service_tier, undefined);
+	});
+
+	test("preserves configuration_update items on post-checkpoint replay when mid-convo effort is active", async () => {
+		const checkpoint = {
+			type: "compaction",
+			id: "cmp-1",
+			parentId: null,
+			timestamp: new Date().toISOString(),
+			summary: "OpenAI Codex native compaction checkpoint (1).",
+			firstKeptEntryId: "cmp-1",
+			tokensBefore: 1000,
+			details: {
+				kind: NATIVE_COMPACTION_KIND,
+				version: 1,
+				modelKey: modelKey(cpaModel),
+				replacementHistory: [{ type: "compaction", encrypted_content: "opaque" }],
+			},
+		} as any;
+		const postUser1 = userEntry("u2", "after compact");
+		const postAssistant = {
+			type: "message",
+			id: "a2",
+			parentId: "u2",
+			timestamp: new Date().toISOString(),
+			message: {
+				role: "assistant",
+				provider: cpaModel.provider,
+				api: cpaModel.api,
+				model: cpaModel.id,
+				providerThinkingLevel: "low",
+				content: [{ type: "text", text: "done" }],
+				stopReason: "stop",
+				timestamp: Date.now(),
+			},
+		} as any;
+		const postUser2 = userEntry("u3", "now think hard");
+		const branch = [checkpoint, postUser1, postAssistant, postUser2];
+		const h = cpaHarness(branch);
+
+		const replay = await h.handlers.get("before_provider_request")!(
+			{
+				payload: {
+					model: cpaModel.id,
+					reasoning: { effort: "medium" },
+					input: [
+						{ role: "developer", content: "system" },
+						{ type: "configuration_update", reasoning: { effort: "high" } },
+					],
+				},
+			},
+			h.context,
+		);
+
+		const updates = replay.input.filter((item: any) => item?.type === "configuration_update");
+		assert.deepEqual(updates, [
+			{ type: "configuration_update", reasoning: { effort: "low" } },
+			{ type: "configuration_update", reasoning: { effort: "high" } },
+		]);
+		assert.deepEqual(replay.input.at(-1), { type: "configuration_update", reasoning: { effort: "high" } });
+	});
+
+	test("preserves historical configuration_update items during session_before_compact for mid-convo effort models", async () => {
+		const checkpoint = {
+			type: "compaction",
+			id: "cmp-1",
+			parentId: null,
+			timestamp: new Date().toISOString(),
+			summary: "OpenAI Codex native compaction checkpoint (1).",
+			firstKeptEntryId: "cmp-1",
+			tokensBefore: 1000,
+			details: {
+				kind: NATIVE_COMPACTION_KIND,
+				version: 1,
+				modelKey: modelKey(cpaModel),
+				replacementHistory: [{ type: "compaction", encrypted_content: "opaque" }],
+			},
+		} as any;
+		const postUser = userEntry("u2", "after compact");
+		const postAssistant = {
+			type: "message",
+			id: "a2",
+			parentId: "u2",
+			timestamp: new Date().toISOString(),
+			message: {
+				role: "assistant",
+				provider: cpaModel.provider,
+				api: cpaModel.api,
+				model: cpaModel.id,
+				providerThinkingLevel: "high",
+				content: [{ type: "text", text: "done" }],
+				stopReason: "stop",
+				timestamp: Date.now(),
+			},
+		} as any;
+		const branch = [checkpoint, postUser, postAssistant];
+		const h = cpaHarness(branch);
+		h.context.model = { ...cpaModel, compat: { supportsMidConvoEffort: true } };
+
+		let compactionBody: Record<string, unknown> | undefined;
+		globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+			compactionBody = JSON.parse(String(init?.body ?? "{}"));
+			return compactionSse();
+		}) as typeof fetch;
+
+		await h.handlers.get("session_before_compact")!(compactEvent(branch), h.context);
+		const input = (compactionBody?.input ?? []) as Array<Record<string, unknown>>;
+		const updates = input.filter((item) => item.type === "configuration_update");
+		assert.deepEqual(updates, [{ type: "configuration_update", reasoning: { effort: "high" } }]);
+		assert.deepEqual(input.at(-1), { type: "compaction_trigger" });
+	});
 });

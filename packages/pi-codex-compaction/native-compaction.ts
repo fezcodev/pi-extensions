@@ -209,7 +209,12 @@ function responseTool(tool: ToolInfo, deferLoading = false): JsonObject {
 	};
 }
 
-function messagesToResponseItems(model: Model<any>, messages: Message[], tools: ToolInfo[]): ResponseItem[] {
+function messagesToResponseItems(
+	model: Model<any>,
+	messages: Message[],
+	tools: ToolInfo[],
+	preserveConfigurationUpdates = false,
+): ResponseItem[] {
 	const items: ResponseItem[] = [];
 	const toolsByName = new Map(tools.map((tool) => [tool.name, tool]));
 	const pendingToolCalls = new Map<string, string>();
@@ -233,6 +238,8 @@ function messagesToResponseItems(model: Model<any>, messages: Message[], tools: 
 				continue;
 			}
 			const isSameProviderAndApi = message.provider === model.provider && message.api === model.api;
+			const isSameModel = isSameProviderAndApi && message.model === model.id;
+			const assistantItems: ResponseItem[] = [];
 			let textIndex = 0;
 			for (const block of message.content) {
 				if (!isJsonObject(block)) continue;
@@ -243,7 +250,7 @@ function messagesToResponseItems(model: Model<any>, messages: Message[], tools: 
 							if (isJsonObject(reasoning) && reasoning.type === "reasoning") {
 								const item = cloneItem(reasoning);
 								delete item.status;
-								items.push(item);
+								assistantItems.push(item);
 							}
 						} catch {}
 					}
@@ -255,7 +262,7 @@ function messagesToResponseItems(model: Model<any>, messages: Message[], tools: 
 					textIndex++;
 					const rawId = signature.id || fallbackId;
 					const id = rawId.length <= 64 ? rawId : `msg_${shortHash(rawId)}`;
-					items.push({
+					assistantItems.push({
 						type: "message",
 						role: "assistant",
 						id,
@@ -269,7 +276,7 @@ function messagesToResponseItems(model: Model<any>, messages: Message[], tools: 
 					const callId = normalizedCallId(rawCallId);
 					const itemId = isSameProviderAndApi ? normalizedItemId(rawItemId) : undefined;
 					pendingToolCalls.set(block.id, callId);
-					items.push({
+					assistantItems.push({
 						type: "function_call",
 						call_id: callId,
 						...(itemId ? { id: itemId } : {}),
@@ -277,6 +284,20 @@ function messagesToResponseItems(model: Model<any>, messages: Message[], tools: 
 						arguments: JSON.stringify(block.arguments ?? {}),
 					});
 				}
+			}
+			if (assistantItems.length > 0) {
+				if (
+					preserveConfigurationUpdates &&
+					isSameModel &&
+					typeof message.providerThinkingLevel === "string" &&
+					message.providerThinkingLevel.trim() !== ""
+				) {
+					items.push({
+						type: "configuration_update",
+						reasoning: { effort: message.providerThinkingLevel },
+					});
+				}
+				items.push(...assistantItems);
 			}
 		} else if (message.role === "toolResult" && typeof message.toolCallId === "string") {
 			const [rawCallId] = message.toolCallId.split("|");
@@ -312,9 +333,14 @@ function messagesToResponseItems(model: Model<any>, messages: Message[], tools: 
 	return items;
 }
 
-function entriesToResponseItems(model: Model<any>, entries: SessionEntry[], tools: ToolInfo[]): ResponseItem[] {
+function entriesToResponseItems(
+	model: Model<any>,
+	entries: SessionEntry[],
+	tools: ToolInfo[],
+	preserveConfigurationUpdates = false,
+): ResponseItem[] {
 	const messages = entries.flatMap((entry) => sessionEntryToContextMessages(entry));
-	return messagesToResponseItems(model, convertToLlm(messages), tools);
+	return messagesToResponseItems(model, convertToLlm(messages), tools, preserveConfigurationUpdates);
 }
 
 export function effectiveInputForBranch(params: {
@@ -322,6 +348,7 @@ export function effectiveInputForBranch(params: {
 	model: Model<any>;
 	tools: ToolInfo[];
 	excludeLastAssistantError?: boolean;
+	preserveConfigurationUpdates?: boolean;
 }): ResponseItem[] {
 	let branch = params.branch;
 	if (params.excludeLastAssistantError) {
@@ -349,12 +376,17 @@ export function effectiveInputForBranch(params: {
 		const tail = branch.slice(checkpoint.checkpoint.entryIndex + 1);
 		return [
 			...checkpoint.checkpoint.details.replacementHistory.map(cloneItem),
-			...entriesToResponseItems(params.model, tail, params.tools),
+			...entriesToResponseItems(params.model, tail, params.tools, params.preserveConfigurationUpdates),
 		];
 	}
 
 	const context = buildSessionContext(branch);
-	return messagesToResponseItems(params.model, convertToLlm(context.messages), params.tools);
+	return messagesToResponseItems(
+		params.model,
+		convertToLlm(context.messages),
+		params.tools,
+		params.preserveConfigurationUpdates,
+	);
 }
 
 function responseItemText(item: ResponseItem): string {
@@ -729,5 +761,7 @@ export function stripInputFromPayload(payload: JsonObject): JsonObject {
 	delete shape.input;
 	delete shape.messages;
 	delete shape.previous_response_id;
+	// Do not carry a transient session service_tier into a later /compact call.
+	delete shape.service_tier;
 	return shape;
 }
