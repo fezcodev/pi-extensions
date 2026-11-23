@@ -266,9 +266,6 @@ export class ProviderCatalog {
           mode === "background" ? this.options.backgroundTimeoutMs ?? 2_000 : this.options.manualTimeoutMs ?? 10_000,
           signal,
         );
-        if (mode === "background" && current.cpaModels.length > 0 && listed.length === 0) {
-          throw new Error("CPA automatic discovery returned no models; retained the last successful snapshot");
-        }
         const specResult = await specsRequest;
         if (signal?.aborted) throw signal.reason ?? new Error("Refresh aborted");
         const freshUpdatedAt = (this.options.now ?? Date.now)();

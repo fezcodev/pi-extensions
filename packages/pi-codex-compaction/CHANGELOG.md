@@ -1,5 +1,11 @@
 # @hank-warren/pi-codex-compaction
 
+## 0.1.2
+
+### Patch Changes
+
+- Strip transient `service_tier` from cached compaction payloads so `/compact` never inherits an earlier `/fast` turn's tier, and preserve `configuration_update` effort items when rebuilding post-checkpoint Responses inputs for models using mid-conversation effort.
+
 ## 0.1.1
 
 ### Patch Changes

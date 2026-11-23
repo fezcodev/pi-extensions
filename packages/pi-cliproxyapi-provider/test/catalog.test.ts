@@ -541,6 +541,19 @@ test("background refresh retains missing models until TTL expires and manual ref
       const manual = await instance.refresh("models", "manual");
       assert.deepEqual(manual.snapshot.cpaModels.map((m) => m.id), ["steady-model"]);
       assert.equal(manual.snapshot.built.stats.stale, 0);
+
+      // A valid empty HTTP 200 list also flows through bounded stale retention and expires after TTL.
+      remoteIds = [];
+      now += 1_000;
+      const emptyBlip = await instance.refresh("models", "background");
+      assert.equal(emptyBlip.models.error, undefined);
+      assert.equal(emptyBlip.models.updated, true);
+      assert.equal(emptyBlip.models.retainedStaleCount, 1);
+      assert.equal(emptyBlip.snapshot.built.stats.stale, 1);
+      now += ttl;
+      const emptyExpired = await instance.refresh("models", "background");
+      assert.deepEqual(emptyExpired.snapshot.cpaModels, []);
+      assert.equal(emptyExpired.snapshot.built.stats.stale, 0);
     } finally {
       globalThis.fetch = originalFetch;
     }
