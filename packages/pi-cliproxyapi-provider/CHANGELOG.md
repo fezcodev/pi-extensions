@@ -1,5 +1,11 @@
 # @hank-warren/pi-cliproxyapi-provider
 
+## 0.6.1
+
+### Patch Changes
+
+- Route Gemini models on every CLIProxyAPI route (Devin's `devin/gemini-*`, Antigravity, AI Studio, Vertex) through the Responses API. Chat Completions has no field for Gemini's reasoning signature, so Devin's Gemini lost it every turn and conversations got stuck returning empty turns; CLIProxyAPI carries it as a Responses reasoning item's `encrypted_content`, which pi replays. A session that already got stuck stays stuck, because its history holds no signatures; start a new one.
+
 ## 0.6.0
 
 ### Minor Changes
