@@ -123,3 +123,28 @@ test("lifecycle hooks reset session-only tier on start/shutdown and sync status 
   handlers.get("session_shutdown")?.({}, sol.ctx);
   assert.equal(controller.getTier(), undefined);
 });
+
+test("syncActiveStatus updates the TUI badge when background discovery refreshes tier eligibility", async () => {
+  let models: CpaModel[] = [{ id: "gpt-6.2-sol", owned_by: "openai" }];
+  const handlers = new Map<string, (...args: any[]) => void>();
+  const commands = new Map<string, any>();
+  const controller = new ServiceTierController(() => models);
+  registerServiceTierLifecycle({
+    on: (event: string, fn: (...args: any[]) => void) => handlers.set(event, fn),
+  } as any, "cpa", controller);
+  registerServiceTierCommands({
+    registerCommand: (name: string, def: any) => commands.set(name, def),
+  } as any, "cpa", controller);
+
+  const sol = mockCtx({ id: "gpt-6.2-sol", provider: "cpa", api: "openai-responses" });
+  handlers.get("session_start")?.({}, sol.ctx);
+
+  // User enables /fast before specs arrive: badge stays cleared.
+  await commands.get("fast").handler("", sol.ctx);
+  assert.deepEqual(sol.statuses.at(-1), { key: SERVICE_TIER_STATUS_KEY, value: undefined });
+
+  // Background discovery finishes and populates serviceTiers without a model switch.
+  models = [{ id: "gpt-6.2-sol", owned_by: "openai", spec: { maxTokens: 128000, serviceTiers: ["priority"] } }];
+  controller.syncActiveStatus("cpa");
+  assert.deepEqual(sol.statuses.at(-1), { key: SERVICE_TIER_STATUS_KEY, value: "[warning:fast]" });
+});

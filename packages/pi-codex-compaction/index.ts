@@ -257,6 +257,9 @@ export function registerCodexCompactionExtension(pi: ExtensionAPI, hostVersion =
 				model,
 				tools: pi.getAllTools(),
 				excludeLastAssistantError: event.reason === "overflow" && event.willRetry,
+				preserveConfigurationUpdates: Boolean(
+					(model.compat as { supportsMidConvoEffort?: boolean } | undefined)?.supportsMidConvoEffort,
+				),
 			});
 			const cached = payloadShapeBySession.get(sessionId);
 			const native = await withCompactionStatus(ctx, () => createNativeCheckpoint({

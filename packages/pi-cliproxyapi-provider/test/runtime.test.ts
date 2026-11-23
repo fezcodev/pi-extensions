@@ -217,3 +217,55 @@ test("runtime refreshModels leaves publication to Pi", async () => {
   assert.equal(models[0].id, "fresh");
   assert.equal(registrations.length, 1);
 });
+
+test("manual refresh re-publishes when background refreshModels diverged from startup", async () => {
+  const registrations: any[] = [];
+  let catalogNotifications = 0;
+  let step = 0;
+  const multiSnapshot = (ids: string[]): any => ({
+    cpaModels: ids.map((id) => ({ id })),
+    metadata: {},
+    metadataSource: "builtin",
+    built: {
+      models: ids.map((id) => ({
+        id,
+        name: id,
+        reasoning: false,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 128000,
+        maxTokens: 16384,
+      })),
+      stats: { total: ids.length, enriched: 0, unmatched: ids.length, matchMethods: {}, unmatchedModelIds: ids, cpaSpecs: 0, stale: 0 },
+    },
+  });
+  const catalog = {
+    load: async () => multiSnapshot(["a"]),
+    refresh: async (_target: string, mode: string) => {
+      step += 1;
+      const next = mode === "background" ? multiSnapshot(["a", "b"]) : multiSnapshot(["a"]);
+      return {
+        snapshot: next,
+        models: { attempted: true, updated: true, changed: true },
+        metadata: { attempted: false, updated: false, changed: false },
+      };
+    },
+  };
+  const runtime = new ProviderRuntime({
+    pi: { registerProvider: (_name: string, provider: any) => registrations.push(provider) } as any,
+    config,
+    catalog: catalog as any,
+    onCatalogUpdated: () => { catalogNotifications += 1; },
+  });
+
+  // Startup registers [a], background refreshModels adds [b], manual refresh drops [b] back to [a].
+  await runtime.start();
+  const liveAfterBg = await runtime.refreshModels(refreshContext());
+  assert.deepEqual(liveAfterBg.map((m) => m.id), ["a", "b"]);
+  await runtime.refresh("models", "manual");
+
+  assert.equal(step, 2);
+  assert.equal(registrations.length, 2, "manual refresh must publish [a] to clear stale [b] from Pi");
+  assert.deepEqual(registrations[1].models.map((m: any) => m.id), ["a"]);
+  assert.equal(catalogNotifications, 2);
+});

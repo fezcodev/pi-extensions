@@ -30,7 +30,12 @@ export default async function (pi: ExtensionAPI) {
       messageThreads: settings.messageThreads,
       getApiKey: () => getDiscoveryApiKey(config.providerName),
     });
-    const runtime = new ProviderRuntime({ pi, config, catalog });
+    const runtime = new ProviderRuntime({
+      pi,
+      config,
+      catalog,
+      onCatalogUpdated: () => serviceTier.syncActiveStatus(config.providerName),
+    });
     registerCodexCompatiblePayloadAdapter(
       pi,
       config.providerName,

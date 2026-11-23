@@ -34,10 +34,22 @@ function tierBadge(tier: ServiceTier): string {
  */
 export class ServiceTierController {
   private tier: ServiceTier | undefined;
+  private activeCtx: ExtensionContext | undefined;
+  private activeProviderName: string | undefined;
   private readonly getCpaModels: () => readonly CpaModel[] | undefined;
 
   constructor(getCpaModels: () => readonly CpaModel[] | undefined) {
     this.getCpaModels = getCpaModels;
+  }
+
+  attach(ctx: ExtensionContext, providerName: string): void {
+    this.activeCtx = ctx;
+    this.activeProviderName = providerName;
+  }
+
+  detach(): void {
+    this.activeCtx = undefined;
+    this.activeProviderName = undefined;
   }
 
   getTier(): ServiceTier | undefined {
@@ -81,6 +93,17 @@ export class ServiceTierController {
       SERVICE_TIER_STATUS_KEY,
       effective ? ctx.ui.theme.fg("warning", tierBadge(effective)) : undefined,
     );
+  }
+
+  syncActiveStatus(providerName?: string): void {
+    const ctx = this.activeCtx;
+    const targetProvider = providerName ?? this.activeProviderName;
+    if (!ctx || !targetProvider) return;
+    try {
+      this.syncStatus(ctx, targetProvider);
+    } catch {
+      this.detach();
+    }
   }
 }
 
@@ -142,6 +165,7 @@ export function registerServiceTierLifecycle(
   controller: ServiceTierController,
 ): void {
   pi.on("session_start", (_event, ctx) => {
+    controller.attach(ctx, providerName);
     controller.reset();
     controller.syncStatus(ctx, providerName);
   });
@@ -149,9 +173,11 @@ export function registerServiceTierLifecycle(
   pi.on("session_shutdown", (_event, ctx) => {
     controller.reset();
     controller.syncStatus(ctx, providerName);
+    controller.detach();
   });
 
   pi.on("model_select", (event, ctx) => {
+    controller.attach(ctx, providerName);
     controller.syncStatus(ctx, providerName, event.model ?? ctx.model);
   });
 }

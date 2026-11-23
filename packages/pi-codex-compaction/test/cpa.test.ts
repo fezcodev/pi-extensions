@@ -294,4 +294,54 @@ describe("CPA lifecycle", () => {
 		]);
 		assert.deepEqual(replay.input.at(-1), { type: "configuration_update", reasoning: { effort: "high" } });
 	});
+
+	test("preserves historical configuration_update items during session_before_compact for mid-convo effort models", async () => {
+		const checkpoint = {
+			type: "compaction",
+			id: "cmp-1",
+			parentId: null,
+			timestamp: new Date().toISOString(),
+			summary: "OpenAI Codex native compaction checkpoint (1).",
+			firstKeptEntryId: "cmp-1",
+			tokensBefore: 1000,
+			details: {
+				kind: NATIVE_COMPACTION_KIND,
+				version: 1,
+				modelKey: modelKey(cpaModel),
+				replacementHistory: [{ type: "compaction", encrypted_content: "opaque" }],
+			},
+		} as any;
+		const postUser = userEntry("u2", "after compact");
+		const postAssistant = {
+			type: "message",
+			id: "a2",
+			parentId: "u2",
+			timestamp: new Date().toISOString(),
+			message: {
+				role: "assistant",
+				provider: cpaModel.provider,
+				api: cpaModel.api,
+				model: cpaModel.id,
+				providerThinkingLevel: "high",
+				content: [{ type: "text", text: "done" }],
+				stopReason: "stop",
+				timestamp: Date.now(),
+			},
+		} as any;
+		const branch = [checkpoint, postUser, postAssistant];
+		const h = cpaHarness(branch);
+		h.context.model = { ...cpaModel, compat: { supportsMidConvoEffort: true } };
+
+		let compactionBody: Record<string, unknown> | undefined;
+		globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+			compactionBody = JSON.parse(String(init?.body ?? "{}"));
+			return compactionSse();
+		}) as typeof fetch;
+
+		await h.handlers.get("session_before_compact")!(compactEvent(branch), h.context);
+		const input = (compactionBody?.input ?? []) as Array<Record<string, unknown>>;
+		const updates = input.filter((item) => item.type === "configuration_update");
+		assert.deepEqual(updates, [{ type: "configuration_update", reasoning: { effort: "high" } }]);
+		assert.deepEqual(input.at(-1), { type: "compaction_trigger" });
+	});
 });

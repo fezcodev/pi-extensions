@@ -10,6 +10,7 @@ export interface ProviderRuntimeOptions {
   pi: ExtensionAPI;
   config: CpaProviderConfig;
   catalog: ProviderCatalog;
+  onCatalogUpdated?: () => void;
 }
 
 export class ProviderRuntime {
@@ -32,7 +33,10 @@ export class ProviderRuntime {
     getDiscoveryApiKey?: () => Promise<string | undefined>,
   ): Promise<CatalogRefreshResult> {
     const result = await this.options.catalog.refresh(target, mode, getDiscoveryApiKey);
-    if (result.models.updated || result.metadata.updated) this.register(result.snapshot, false);
+    if (result.models.updated || result.metadata.updated) {
+      this.register(result.snapshot, mode === "manual");
+      this.options.onCatalogUpdated?.();
+    }
     return result;
   }
 
@@ -58,14 +62,15 @@ export class ProviderRuntime {
     // only once it has gone stale, so a newly listed model stops rendering
     // with fallback metadata without anyone running a manual refresh.
     const result = await this.options.catalog.refresh("models-if-stale", mode, keyFn, context.signal);
-    // Pi publishes refreshModels' return value synchronously. Registering here as
-    // well would create a second, competing catalog publication.
-    return normalizeProviderModels(
-      result.snapshot.built.models.length > 0
-        ? result.snapshot.built.models
-        : buildUnavailableProviderModels(),
-      this.options.config.baseUrl,
-    );
+    const models = result.snapshot.built.models.length > 0
+      ? result.snapshot.built.models
+      : buildUnavailableProviderModels();
+    // Pi publishes refreshModels' return value synchronously. Record its
+    // fingerprint so a later manual refresh returning to the startup catalog
+    // still detects the diff against what Pi currently holds.
+    this.registeredFingerprint = JSON.stringify(models);
+    this.options.onCatalogUpdated?.();
+    return normalizeProviderModels(models, this.options.config.baseUrl);
   }
 
   private register(snapshot: CatalogSnapshot, force: boolean): void {
