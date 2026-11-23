@@ -1,8 +1,9 @@
 name: Pi Code Review
 
-# One approve-or-request-changes review per push, posted as github-actions[bot]
-# (or your App's bot). Older Pi reviews are collapsed. Optional repo guidance:
-# .github/pi/review.md, read from the base branch.
+# Parallel multi-model PR review via fezcodev/pi-action/pr-review-fusion@v1:
+# Reviewer A (claude-opus-5-5 | gpt-6.2-sol) + Reviewer B (gpt-6.2-sol | claude-opus-5-5),
+# skeptically synthesized by claude-opus-5-5 (fallback gpt-6.2-sol), posted as
+# github-actions[bot]. Repo guidance: .github/pi/review.md, read from the base branch.
 # Needs the CLIPROXYAPI_API_KEY secret and CLIPROXYAPI_BASE_URL variable.
 
 on:
@@ -18,7 +19,7 @@ jobs:
       github.event.pull_request.user.type != 'Bot' &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 50
     permissions:
       contents: read
       pull-requests: write
@@ -31,12 +32,7 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - uses: fezcodev/pi-action/pr-review@v1
+      - uses: fezcodev/pi-action/pr-review-fusion@v1
         with:
           cliproxyapi-api-key: ${{ secrets.CLIPROXYAPI_API_KEY }}
           cliproxyapi-base-url: ${{ vars.CLIPROXYAPI_BASE_URL }}
-          # Defaults: cpa/gpt-6.2-sol, falling back to cpa/claude-opus-5-5, thinking high,
-          # read-only tools.
-          # mode: comment             # never approve or block, just comment
-          # app-client-id: ${{ vars.PI_APP_CLIENT_ID }}        # post as your App instead of
-          # app-private-key: ${{ secrets.PI_APP_PRIVATE_KEY }} # github-actions[bot]
