@@ -34,6 +34,9 @@ export function normalizeProviderModels(
 ): ProviderModelConfigLike[] {
   return models.map((model) => ({
     ...model,
+    // Keep every model's API explicit so registering a provider-level
+    // `openai-responses` streamSimple wrapper only intercepts Responses models.
+    api: model.api ?? "openai-completions",
     // CLIProxyAPI accepts OpenAI-compatible function tools for both Chat
     // Completions and Responses models, but Pi's strict all-properties-required
     // rewrite destroys optional argument semantics for multi-mode extension
@@ -60,18 +63,22 @@ export function buildProviderRegistration(
   config: CpaProviderConfig,
   models: ProviderModelConfigLike[],
   refreshModels?: (context: RefreshModelsContext) => Promise<ProviderModelConfigLike[]>,
+  streamSimple?: ProviderConfig["streamSimple"],
 ): ProviderRegistration {
   return {
     providerName: config.providerName,
     config: {
       name: `CLIProxyAPI (${config.providerName})`,
       baseUrl: config.baseUrl,
-      api: "openai-completions",
+      // Pi invokes `streamSimple` only for models whose `api` matches the
+      // provider-level `api`; non-Responses models keep their explicit API.
+      api: streamSimple ? "openai-responses" : "openai-completions",
       apiKey: config.authRequired ? "$CLIPROXYAPI_API_KEY" : "cliproxyapi-no-auth",
       authHeader: config.authRequired && config.authHeader,
       headers: Object.keys(config.headers).length > 0 ? config.headers : undefined,
       models: normalizeProviderModels(models, config.baseUrl),
       refreshModels,
+      ...(streamSimple ? { streamSimple } : {}),
     },
   };
 }

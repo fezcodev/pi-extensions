@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { rewriteCodexCompatiblePayload, rewriteCodexCompatibleToolPayload } from "../src/codex-compat.ts";
+import {
+  createCpaResponsesStreamSimple,
+  rewriteCodexCompatiblePayload,
+  rewriteCodexCompatibleToolPayload,
+} from "../src/codex-compat.ts";
 
 const cpaResponsesModel = { id: "gpt-6.2-sol", provider: "cpa", api: "openai-responses" as const };
 
@@ -67,4 +71,43 @@ test("never injects service_tier on Anthropic Messages or non-CPA models", () =>
     rewriteCodexCompatiblePayload(payload, { id: "gpt-6.2-sol", provider: "openai", api: "openai-responses" }, "cpa", () => "priority"),
     undefined,
   );
+});
+
+test("createCpaResponsesStreamSimple scopes rewrites to the actual request model and chains caller onPayload", async () => {
+  const seen: Array<{ payload: Record<string, unknown>; model: { provider: string; id: string; api: string } }> = [];
+  let downstreamPayload: Record<string, unknown> | undefined;
+  const fakeResponsesApi = {
+    streamSimple: (model: any, _context: any, options: any) => {
+      const payload = { model: model.id, tools: [{ type: "function", name: "bash" }] };
+      const promise = Promise.resolve(options.onPayload(payload, model)).then((finalPayload) => {
+        seen.push({ payload: finalPayload, model });
+      });
+      return promise as any;
+    },
+  };
+
+  const streamSimple = createCpaResponsesStreamSimple(
+    "cpa",
+    (model) => (model?.provider === "cpa" && model.id === "gpt-6.2-sol" ? "priority" : undefined),
+    fakeResponsesApi as any,
+  );
+
+  // CPA Responses request receives strict: null + service_tier before caller onPayload runs.
+  await (streamSimple(cpaResponsesModel as any, { messages: [] } as any, {
+    onPayload: (payload) => {
+      downstreamPayload = payload as Record<string, unknown>;
+      return { ...(payload as Record<string, unknown>), touchedByCaller: true };
+    },
+  }) as unknown as Promise<void>);
+
+  assert.equal(downstreamPayload?.service_tier, "priority");
+  assert.equal((downstreamPayload?.tools as Array<Record<string, unknown>>)?.[0]?.strict, null);
+  assert.equal(seen[0]?.payload.service_tier, "priority");
+  assert.equal(seen[0]?.payload.touchedByCaller, true);
+
+  // If a non-CPA model somehow reaches the wrapper, it is left completely untouched.
+  const directCodex = { id: "gpt-6.2-sol", provider: "openai-codex", api: "openai-codex-responses" };
+  await (streamSimple(directCodex as any, { messages: [] } as any, {}) as unknown as Promise<void>);
+  assert.equal(seen[1]?.payload.service_tier, undefined);
+  assert.equal((seen[1]?.payload.tools as Array<Record<string, unknown>>)?.[0]?.strict, undefined);
 });

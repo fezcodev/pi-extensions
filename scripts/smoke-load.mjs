@@ -110,7 +110,7 @@ const EXPECTED_SURFACES = {
 	// and handlers, so this surface holds with or without a CPA snapshot.
 	"./packages/pi-cliproxyapi-provider/index.ts": {
 		commands: ["cliproxyapi", "fast", "ultrafast"],
-		handlers: ["before_provider_request", "model_select", "session_shutdown", "session_start"],
+		handlers: ["model_select", "session_shutdown", "session_start"],
 	},
 	"./packages/pi-codex-compaction/index.ts": {
 		handlers: [

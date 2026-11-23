@@ -559,3 +559,65 @@ test("background refresh retains missing models until TTL expires and manual ref
     }
   });
 });
+
+test("background refresh merges against latest on-disk cache so another session cannot resurrect a manually removed model", async () => {
+  await withTempHome(async () => {
+    let now = 2_000_000;
+    const ttl = 60_000;
+    await writeCache(cpaModelsCachePath(config), [
+      { id: "steady-model", owned_by: "openai", lastSeenAt: now },
+      { id: "removed-model", owned_by: "openai", lastSeenAt: now },
+    ], now);
+
+    const sessionA = new ProviderCatalog({
+      config,
+      gpt56ContextWindow: "canonical",
+      getApiKey: async () => undefined,
+      staleModelTtlMs: ttl,
+      now: () => now,
+    });
+    const sessionB = new ProviderCatalog({
+      config,
+      gpt56ContextWindow: "canonical",
+      getApiKey: async () => undefined,
+      staleModelTtlMs: ttl,
+      now: () => now,
+    });
+    await sessionA.load();
+    await sessionB.load();
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      if (String(url).includes("client_version")) {
+        return new Response(JSON.stringify({ models: [] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ data: [{ id: "steady-model", owned_by: "openai" }] }), { status: 200 });
+    }) as typeof fetch;
+
+    try {
+      now += 1_000;
+      // Session A manually clears removed-model from disk.
+      const manual = await sessionA.refresh("models", "manual");
+      assert.deepEqual(manual.snapshot.cpaModels.map((m) => m.id), ["steady-model"]);
+
+      // Session B still had removed-model in memory; its background refresh reads
+      // the latest disk cache and must not write removed-model back as stale.
+      now += 1_000;
+      const bg = await sessionB.refresh("models", "background");
+      assert.deepEqual(bg.snapshot.cpaModels.map((m) => m.id), ["steady-model"]);
+      assert.equal(bg.models.retainedStaleCount, undefined);
+      assert.equal(bg.models.changed, true);
+
+      // A brand-new Session C sees only steady-model on disk.
+      const sessionC = new ProviderCatalog({
+        config,
+        gpt56ContextWindow: "canonical",
+        getApiKey: async () => undefined,
+      });
+      const loadedC = await sessionC.load();
+      assert.deepEqual(loadedC.cpaModels.map((m) => m.id), ["steady-model"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});

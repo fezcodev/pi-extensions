@@ -1,5 +1,5 @@
 import type { RefreshModelsContext } from "@earendil-works/pi-ai";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ProviderConfig } from "@earendil-works/pi-coding-agent";
 import { getDiscoveryApiKey } from "./auth.ts";
 import { ProviderCatalog, type CatalogRefreshResult, type CatalogSnapshot, type RefreshTarget } from "./catalog.ts";
 import { buildUnavailableProviderModels } from "./provider.ts";
@@ -10,6 +10,7 @@ export interface ProviderRuntimeOptions {
   pi: ExtensionAPI;
   config: CpaProviderConfig;
   catalog: ProviderCatalog;
+  streamSimple?: ProviderConfig["streamSimple"];
   onCatalogUpdated?: () => void;
 }
 
@@ -77,7 +78,12 @@ export class ProviderRuntime {
     const models = snapshot.built.models.length > 0 ? snapshot.built.models : buildUnavailableProviderModels();
     const fingerprint = JSON.stringify(models);
     if (!force && fingerprint === this.registeredFingerprint) return;
-    const registration = buildProviderRegistration(this.options.config, models, (ctx) => this.refreshModels(ctx));
+    const registration = buildProviderRegistration(
+      this.options.config,
+      models,
+      (ctx) => this.refreshModels(ctx),
+      this.options.streamSimple,
+    );
     this.options.pi.registerProvider(registration.providerName, registration.config);
     this.registeredFingerprint = fingerprint;
   }

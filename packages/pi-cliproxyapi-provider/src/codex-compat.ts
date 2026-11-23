@@ -1,4 +1,6 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { openAIResponsesApi } from "@earendil-works/pi-ai/compat";
+import type { ProviderStreams } from "@earendil-works/pi-ai";
+import type { ExtensionContext, ProviderConfig } from "@earendil-works/pi-coding-agent";
 import type { ServiceTier, ServiceTierModelRef } from "./service-tier.ts";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -63,11 +65,27 @@ export function rewriteCodexCompatiblePayload(
   return rewrittenTools;
 }
 
-export function registerCodexCompatiblePayloadAdapter(
-  pi: ExtensionAPI,
+/**
+ * Provider-scoped OpenAI Responses stream wrapper for CLIProxyAPI models.
+ * Runs against the actual request model (`payloadModel`) rather than the
+ * currently selected UI model, so concurrent requests on other providers are
+ * never rewritten.
+ */
+export function createCpaResponsesStreamSimple(
   providerName: string,
   resolveServiceTier?: (model: ServiceTierModelRef | null | undefined) => ServiceTier | undefined,
-): void {
-  pi.on("before_provider_request", (event, ctx) =>
-    rewriteCodexCompatiblePayload(event.payload, ctx.model, providerName, resolveServiceTier));
+  responsesApi: Pick<ProviderStreams, "streamSimple"> = openAIResponsesApi(),
+): NonNullable<ProviderConfig["streamSimple"]> {
+  return (model, context, options) => {
+    const baseOnPayload = options?.onPayload;
+    return responsesApi.streamSimple(model, context, {
+      ...options,
+      onPayload: async (payload, payloadModel) => {
+        const rewritten = rewriteCodexCompatiblePayload(payload, payloadModel, providerName, resolveServiceTier);
+        const next = rewritten ?? payload;
+        if (!baseOnPayload) return next;
+        return (await baseOnPayload(next, payloadModel)) ?? next;
+      },
+    });
+  };
 }

@@ -1,5 +1,5 @@
 import { cpaModelsCachePath, discoveryHeaders, modelsDevCachePath } from "./discovery.ts";
-import { readCache, writeCache, type CacheEnvelope } from "./cache.ts";
+import { readCache, withCacheLock, writeCache, type CacheEnvelope } from "./cache.ts";
 import {
   DEFAULT_STALE_MODEL_TTL_MS,
   fetchCpaModels,
@@ -268,28 +268,40 @@ export class ProviderCatalog {
         );
         const specResult = await specsRequest;
         if (signal?.aborted) throw signal.reason ?? new Error("Refresh aborted");
-        const freshUpdatedAt = (this.options.now ?? Date.now)();
-        const withSpecs = withCpaModelSpecs(listed, "specs" in specResult ? specResult.specs : previousSpecs(current.cpaModels));
         if ("error" in specResult) models.specError = specResult.error;
-        let nextModels: CpaModel[];
-        if (mode === "background") {
-          const merged = mergeCpaModelsWithStaleRetention(
-            current.cpaModels,
-            withSpecs,
-            freshUpdatedAt,
-            this.options.staleModelTtlMs ?? DEFAULT_STALE_MODEL_TTL_MS,
-            current.cpaUpdatedAt,
+        const cachePath = cpaModelsCachePath(this.options.config);
+        const committed = await withCacheLock(cachePath, async () => {
+          const onDisk = await readCache(cachePath, parseCpaModelsCache);
+          const baselineModels = onDisk?.data ?? current.cpaModels;
+          const baselineUpdatedAt = onDisk?.fetchedAt ?? current.cpaUpdatedAt;
+          const freshUpdatedAt = (this.options.now ?? Date.now)();
+          const withSpecs = withCpaModelSpecs(
+            listed,
+            "specs" in specResult ? specResult.specs : previousSpecs(baselineModels),
           );
-          nextModels = merged.models;
-          if (merged.retainedStaleCount > 0) models.retainedStaleCount = merged.retainedStaleCount;
-        } else {
-          nextModels = withSpecs.map(({ staleSince: _cleared, ...model }) => ({ ...model, lastSeenAt: freshUpdatedAt }));
-        }
-        const changed = !sameCpaModels(current.cpaModels, nextModels);
-        await (this.options.writeSnapshot ?? writeCache)(cpaModelsCachePath(this.options.config), nextModels, freshUpdatedAt);
-        cpaModels = nextModels;
-        cpaUpdatedAt = freshUpdatedAt;
-        models.changed = changed;
+          let nextModels: CpaModel[];
+          let retainedStaleCount = 0;
+          if (mode === "background") {
+            const merged = mergeCpaModelsWithStaleRetention(
+              baselineModels,
+              withSpecs,
+              freshUpdatedAt,
+              this.options.staleModelTtlMs ?? DEFAULT_STALE_MODEL_TTL_MS,
+              baselineUpdatedAt,
+            );
+            nextModels = merged.models;
+            retainedStaleCount = merged.retainedStaleCount;
+          } else {
+            nextModels = withSpecs.map(({ staleSince: _cleared, ...model }) => ({ ...model, lastSeenAt: freshUpdatedAt }));
+          }
+          const changed = !sameCpaModels(current.cpaModels, nextModels);
+          await (this.options.writeSnapshot ?? writeCache)(cachePath, nextModels, freshUpdatedAt);
+          return { nextModels, freshUpdatedAt, changed, retainedStaleCount };
+        });
+        cpaModels = committed.nextModels;
+        cpaUpdatedAt = committed.freshUpdatedAt;
+        if (committed.retainedStaleCount > 0) models.retainedStaleCount = committed.retainedStaleCount;
+        models.changed = committed.changed;
         models.updated = true;
       } catch (error) {
         if (signal?.aborted) throw signal.reason ?? error;
