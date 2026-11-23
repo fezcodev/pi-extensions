@@ -116,7 +116,7 @@ test("routes GPT-5.6 family models through the Responses API", () => {
     { id: "gpt-5.6-codex" },
     { id: "0xdev/gpt-5.6-codex-mini" },
     { id: "gpt-5.60" },
-    { id: "gemini-3-pro" },
+    { id: "grok-4.7" },
   ], {}, {});
 
   assert.deepEqual(result.models.map((model) => model.api), [
@@ -201,9 +201,37 @@ test("routes every catalog Claude model through the Anthropic Messages API", () 
   }
 });
 
-test("leaves non-Claude, non-Codex-Responses models on the provider default API", () => {
+test("routes Gemini on every route through the Responses API, outside the Codex family", () => {
   const result = buildProviderModels([
-    { id: "gemini-3-pro" },
+    { id: "devin/gemini-4-neon", owned_by: "google" },
+    { id: "gemini-3-flash", owned_by: "antigravity" },
+    { id: "gemini-4-argon" },
+    { id: "0xdev/gemini-3-pro" },
+  ], {}, {});
+
+  for (const model of result.models) {
+    assert.equal(model.api, "openai-responses", `${model.id} should use openai-responses`);
+    assert.equal(model.compat, undefined, `${model.id} should carry no compat`);
+    assert.equal(model.contextWindow, 128000, `${model.id} keeps the non-Codex default window`);
+  }
+});
+
+test("does not treat Gemini look-alikes or other Devin models as Gemini", () => {
+  const result = buildProviderModels([
+    { id: "devin/glm-5-3" },
+    { id: "devin/kimi-k3-1-pro" },
+    { id: "devin/deepseek-v4-1-flash-1017" },
+    { id: "geminix-1" },
+    { id: "not-gemini-4" },
+  ], {}, {});
+
+  for (const model of result.models) {
+    assert.equal(model.api, undefined, `${model.id} should not carry an API override`);
+  }
+});
+
+test("leaves non-Claude, non-Codex-Responses, non-Gemini models on the provider default API", () => {
+  const result = buildProviderModels([
     { id: "gpt-5.2" },
     { id: "gpt-image-2" },
     { id: "codex-auto-review" },

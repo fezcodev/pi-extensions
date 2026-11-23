@@ -10,6 +10,7 @@ const GPT_5_5_MODEL = /^gpt-5\.5(?:-|$)/;
 const GPT_5_6_MODEL = /^gpt-5\.6(?:-|$)/;
 const GPT_6_MODEL = /^gpt-6(?:\.\d+)?(?:-|$)/;
 const CLAUDE_MODEL = /^claude(?:-|$)/;
+const GEMINI_MODEL = /^gemini(?:-|$)/;
 
 /** A model id without any owner or routing prefix (`plus/gpt-5.6-sol` -> `gpt-5.6-sol`). */
 export function modelName(id: string): string {
@@ -56,6 +57,11 @@ export function isClaudeModel(context: ModelApiContext): boolean {
   return matchesModelId(context, CLAUDE_MODEL);
 }
 
+/** Gemini on any CLIProxyAPI route (`devin/gemini-4-neon`, Antigravity's `gemini-3-flash`). */
+export function isGeminiModel(context: ModelApiContext): boolean {
+  return matchesModelId(context, GEMINI_MODEL);
+}
+
 export interface ModelWire {
   /** Model-level API override; undefined keeps the provider default. */
   api?: ProviderModelConfigLike["api"];
@@ -76,6 +82,11 @@ export interface ModelWire {
  *   faithfully at `/v1/messages`. The Chat Completions shape cannot represent
  *   signed thinking blocks or per-turn thinking effort, so routing Claude
  *   through it drops signatures and breaks multi-turn reasoning replay.
+ * - Gemini models use the Responses API for the same reason. Gemini signs its
+ *   reasoning and needs the signature back with later tool calls; CLIProxyAPI
+ *   carries it as a Responses reasoning item's `encrypted_content`, while its
+ *   Chat Completions output has no field for it. Without it Devin's Gemini
+ *   intermittently completes with billed output tokens and no content.
  */
 export function resolveModelWire(context: ModelApiContext, profiles?: PiModelProfiles): ModelWire {
   if (isClaudeModel(context)) {
@@ -83,6 +94,9 @@ export function resolveModelWire(context: ModelApiContext, profiles?: PiModelPro
   }
   if (isCodexResponsesModel(context, profiles)) {
     return { api: "openai-responses", codexResponses: true, profile: profiles?.find("openai-codex", context) };
+  }
+  if (isGeminiModel(context)) {
+    return { api: "openai-responses", codexResponses: false };
   }
   return { codexResponses: false };
 }
