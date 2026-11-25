@@ -33,7 +33,10 @@ export function setHerdrBlocked(pi: ExtensionAPI, active: boolean, label?: strin
  *
  * `blocked` makes pi report the prompt as program status (OSC 7501), which
  * `ctx.ui.select` does on its own and `custom()` does only when asked; that is
- * how herdr-core and the Herdr app see a pane waiting on a human.
+ * how herdr-core and the Herdr app see a pane waiting on a human. Both paths
+ * report kind `permission`: `select()` would default to `question`. RPC
+ * requests do not carry `blockedKind` yet (pi 1.6.1), so the RPC client
+ * still picks its own kind.
  */
 export function promptSelect(
   pi: ExtensionAPI,
@@ -44,7 +47,9 @@ export function promptSelect(
   /** Receives a function that settles this prompt with a choice, as a keypress would (remote answers). */
   onAnswerable?: (answer: (choice: string) => boolean) => void,
 ): Promise<string | undefined> {
-  if (ctx.mode === "rpc") return ctx.ui.select(approvalPromptText(content), values, { signal });
+  if (ctx.mode === "rpc") {
+    return ctx.ui.select(approvalPromptText(content), values, { signal, blockedKind: "permission" });
+  }
   return ctx.ui.custom<string | undefined>((tui, theme, _keybindings, done) => {
     let finished = false;
     const onAbort = () => finish(undefined);

@@ -1,5 +1,11 @@
 # @hank-warren/pi-auto-permissions
 
+## 0.29.3
+
+### Patch Changes
+
+- The RPC approval prompt passes `blockedKind: "permission"` to `ctx.ui.select` (pi 1.6.1), so it reports itself as a permission request rather than `select()`'s default question, matching the TUI prompt. Pi's RPC protocol does not forward `blockedKind` yet, so a pi-agents parent still shows a forwarded approval as a question until it does.
+
 ## 0.29.2
 
 ### Patch Changes

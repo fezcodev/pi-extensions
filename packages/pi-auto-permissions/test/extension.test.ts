@@ -221,7 +221,7 @@ interface SetupOptions {
 	/** Defaults to "tui". */
 	mode?: "tui" | "rpc";
 	/** `ctx.ui.select`, used for prompts in RPC mode. */
-	select?: (title: string, options: string[]) => Promise<string | undefined>;
+	select?: (title: string, options: string[], opts?: { blockedKind?: string }) => Promise<string | undefined>;
 	projectTrusted?: boolean;
 	/** Lines written to `<cwd>/.pi/trusted-ops`. */
 	trustedOps?: string[];
@@ -1999,12 +1999,14 @@ test("37b · with another extension adding instruction files through the prompt 
 
 test("38 · in RPC mode the approval prompt goes through ui.select, so a subagent's parent can render it", async () => {
 	const titles: string[] = [];
+	const kinds: (string | undefined)[] = [];
 	await withExtension(
 		{
 			rules: [GUARDED_RULE],
 			mode: "rpc",
-			select: async (title, options) => {
+			select: async (title, options, opts) => {
 				titles.push(title);
+				kinds.push(opts?.blockedKind);
 				return options.find((option) => option.startsWith("Allow"));
 			},
 			completeSimple: () => assistantResponse(verdictText("ask_user", "force push rewrites history")),
@@ -2015,6 +2017,7 @@ test("38 · in RPC mode the approval prompt goes through ui.select, so a subagen
 			assert.equal(harness.customCalls, 0, "custom() renders nothing over RPC");
 			assert.equal(titles.length, 1);
 			assert.match(titles[0]!, /Git push — Auto Permissions needs approval/u);
+			assert.deepEqual(kinds, ["permission"], "select() would otherwise report a question");
 		},
 	);
 });
